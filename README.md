@@ -1,8 +1,8 @@
 # SquidFW
 en: This is a transparent squid, with https support, balancing traffic across domains. He sends certain domains to redsocks, the rest to the default gateway.
 The script will automatically install and configure everything. You only need to specify the variables.
-You also need to specify the domains that will be redirected to the proxy. After the string 'cat << EOF > /etc/squid/vpn_sites', specify the domains, in squid format (~140 line)
-The script was made for alt linux p10, but you can also redo it for other distributions. For squid to work properly, it needs to be rebuilt according to the links below, but you can also use my packages(RPM). By default, my packages are used (~ 94 and 95 lines).
+You also need to specify the domains that will be redirected to the proxy. After the string 'cat << EOF > /etc/squid/vpn_sites', specify the domains, in squid format (+-140 line)
+The script was made for alt linux p10, but you can also redo it for other distributions. For squid to work properly, it needs to be rebuilt according to the links below, but you can also use my packages(RPM). By default, my packages are used (+- 94 and 95 lines).
 
 
 
