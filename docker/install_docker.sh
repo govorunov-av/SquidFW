@@ -3,7 +3,7 @@ PROXY_IP=''
 PROXY_PORT=''
 PROXY_LOGIN=''
 PROXY_PASSWORD=''
-HOME_NET='192.168.0.0/16' 
+HOME_NET='' #ex 192.168.0.0/16
 INTERNAL_NET='10.1.0.0/24' #ONLY /24 PREFIX
 
 SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-6.10-alt1.x86_64.rpm'
