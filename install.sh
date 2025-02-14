@@ -1,29 +1,47 @@
 #!/bin/bash
+##### BEGIN CHANGEABLE VARS #####
+
+##### BASE VARS #####
 PROXY_IP=''
 PROXY_PORT=''
 PROXY_LOGIN=''
 PROXY_PASSWORD=''
-HOME_NET='192.168.0.0/16'
+HOME_NET='' #With prefix (ex: 192.168.100.0/24)
 INTERNAL_NET='10.1.0.0/24' #ONLY /24 PREFIX
-INTERNAL_NET1='10.1.1.0/24' #ONLY /24 PREFIX
-INSTALL_BYEDPI=1 # 1/0
 
+##### KEEPALIVED VARS #####
+KEEPALIVED=0 #Set 0 or 1 for install vrrp service
+KEEPALIVED_MASTER=1 #Set 0 or 1 for vrrp master (main node)
+KEEPALIVED_VIP=192.168.100.254 #HA ip
+KEEPALIVED_PASSWORD=changeme #Password for link Backup node
+
+##### DOMAINS VARS #####
+RU_SITES="
+#Here you can write domain coming from the domains of the vpn_sites
+#EXAMPLE: You write .com domain in vpn_sites and here you write .avito.com, this domains will be use default gateway
+.vk.com
+.habr.com" 
+
+VPN_SITES="
+.2ip.ru
+.com"
+
+##### LINK VARS #####
 SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-6.10-alt1.x86_64.rpm'
 SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-helpers-6.10-alt1.x86_64.rpm'
+
+##### END CHANGEABLE VARS #####
 
 NET_INTERFACE=$(ip route get 1.1.1.1 | awk '{print$5; exit}')
 NET_IP=$(ip -br a | grep $(echo ^$NET_INTERFACE) | awk '{print$3}' | cut -d/ -f1)
 GATEWAY=$(ip r | grep default | grep $NET_INTERFACE | awk '{print$3}')
 REDSOCKS_IP=$(echo $INTERNAL_NET | cut -d / -f1 | awk -F. '{print $1 "." $2 "." $3 ".1"}')
-BYEDPI_IP=$(echo $INTERNAL_NET1 | cut -d / -f1 | awk -F. '{print $1 "." $2 "." $3 ".1"}')
-
-BYEDPI_COMMAND='/usr/local/bin/ciadpi --split 8 --auto r --oob 2 -R 1-3 -Y -r 4 --md5sig --fake-data=":GET /HTTP/1.1\r\nHost: ya.ru\r\n\r\n" --fake -1 --disorder 3 --auto=torst' 
 
 apt-get update && apt-get install git curl wget make gcc libevent-devel -y 
 mkdir /build && cd /build
 echo "Install and configure redsocks"
 git clone https://github.com/darkk/redsocks.git
-cd /build/redsocks 
+cd /build/redsocks/
 make 
 cp redsocks /usr/local/bin/redsocks 
 echo "Create redsocks_proxy.conf"
@@ -51,64 +69,40 @@ EOF
 echo "Create redsocks run script"
 mkdir /scripts
 
-if [ "$INSTALL_BYEDPI" -eq 1 ]; then
-cd /build
-git clone https://github.com/hufrea/byedpi.git
-cd /build/byedpi
-make 
-make install 
-cp ciadpi /usr/local/bin/ciadpi
-cat << EOF > /etc/redsocks_byedpi.conf
-base {
-	log_debug = off;
-	log_info = on;
-	log = "syslog:daemon";
-	daemon = on;
-	user = redsocks;
-	group = redsocks;
-	redirector = iptables;
-}
-redsocks {
-	local_ip = 0.0.0.0;
-	local_port = 12346;
-	ip = 127.0.0.1;
-	port = 1080;
-	type = socks5;
-}
-EOF
-chown redsocks:redsocks /etc/redsocks_byedpi.conf
-chmod 770 /etc/redsocks_byedpi.conf
-cat << EOF > /scripts/byedpi.sh
-$BYEDPI_COMMAND
-EOF
-fi
-
-if [ "$INSTALL_BYEDPI" -eq 1 ]; then
-INSTALL_BYEDPI_COMMAND='/usr/local/bin/redsocks -c /etc/redsocks_byedpi.conf'
-fi
-
 cat << EOF > /scripts/redsocks.sh
 #!/bin/bash
 /usr/local/bin/redsocks -c /etc/redsocks_proxy.conf
-$INSTALL_BYEDPI_COMMAND
 
 sleep 1
-# Целевой IP-адрес
+#Целевой IP-адрес
 TARGET_IP=$PROXY_IP
 
-# Функция проверки IP
+#Функция проверки IP
 check_ip() {
-    CURRENT_IP=\$(curl -s ifconfig.me --max-time 3 --interface $REDSOCKS_IP)
+    CURRENT_IP=\$(curl -s ifconfig.me --max-time 2 --interface $REDSOCKS_IP)
 
     # Сравнение текущего IP с целевым
     if [[ \$CURRENT_IP != \$TARGET_IP ]]; then
-        echo "IP не совпадает. IP = \$CURRENT_IP. Перезапускаем redsocks..."
+    CURRENT_IP2=\$(curl -s ifconfig.me --max-time 5 --interface $REDSOCKS_IP)
+    if [[ \$CURRENT_IP2 != \$TARGET_IP ]]; then
+
+        ((COUNTER1++))
+
+        if [ "$KEEPALIVED" == 1 ]; then
+        echo \$COUNTER1 > /scripts/vrrp_counter
+        fi
+
+        echo "IP не совпадает. IP = \$CURRENT_IP. Перезапуск №: $COUNTER1. Перезапускаем redsocks..."
         pkill redsocks
+        sleep 3
         /usr/local/bin/redsocks -c /etc/redsocks_proxy.conf &
+    fi
     else
         echo "IP совпадает: \$CURRENT_IP"
+        COUNTER1=0
     fi
 }
+
 while true; do
     check_ip
     sleep 35  # Пауза в 35 секунд
@@ -123,19 +117,6 @@ After=network.target
 
 [Service]
 ExecStart=bash /scripts/redsocks.sh
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-echo "Create byedpi service"
-cat << EOF > /etc/systemd/system/byedpi.service
-[Unit]
-After=network.target
-
-[Service]
-ExecStart=bash /scripts/byedpi.sh
 Restart=on-failure
 
 [Install]
@@ -169,16 +150,14 @@ sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/spool/squid/ssl_db 
 
 acl localnet src $HOME_NET
 acl localnet src $INTERNAL_NET
+acl ru_sites dstdomain "/etc/squid/ru_sites"
 acl vpn_sites dstdomain "/etc/squid/vpn_sites"
-#acl ru_sites dstdomain "/etc/squid/ru_sites"
-acl vpn_sites dstdomain "/etc/squid/vpn_sites"
-#acl ban_sites src "/etc/squid/ban_sites"
 acl all_domain dstdomain .*
 
+tcp_outgoing_address $NET_IP ru_sites
 tcp_outgoing_address $REDSOCKS_IP vpn_sites
 tcp_outgoing_address $NET_IP all_domain
 
-#http_access deny ban_sites
 http_access allow localnet
 http_access deny all
 
@@ -187,7 +166,7 @@ cache_log /var/log/squid/cache.log
 cache_mem 128 MB
 maximum_object_size_in_memory 512 KB
 maximum_object_size 1024 KB
-cache_dir aufs /opt/squid 3000 16 256
+cache_dir aufs /opt/squid 1000 16 256
 EOF
 
 echo "Creating CA certificate"
@@ -199,11 +178,11 @@ mkdir /opt/squid # squid cache dir
 chown -R squid:squid /opt/squid && chmod 770 /opt/squid
 squid -z
 
-echo "Configure vpn domains file"
+echo "Configure ru domains file"
+echo "$RU_SITES" > /etc/squid/ru_sites
 
-cat << EOF > /etc/squid/vpn_sites
-.com
-EOF
+echo "Configure vpn domains file"
+echo "$VPN_SITES" > /etc/squid/vpn_sites
 
 IP_FORWARD=$(cat /etc/net/sysctl.conf | grep 'net.ipv4.ip_forward = 0' | wc -l )
 if [ "$IP_FORWARD" -eq 1 ]; then
@@ -212,17 +191,15 @@ sed -i 's/^net\.ipv4\.ip_forward = 0$/net.ipv4.ip_forward = 1/' /etc/net/sysctl.
 fi
 
 echo "Configure rt_tables"
-echo '255     local' > /etc/iproute2/rt_tables
-echo '254     main' >> /etc/iproute2/rt_tables
-echo '253     default' >> /etc/iproute2/rt_tables
-echo '200     redsocks_proxy_table' >> /etc/iproute2/rt_tables
 
-if [ "$INSTALL_BYEDPI" -eq 1 ]; then
-echo '150     redsocks_byedpi_table' >> /etc/iproute2/rt_tables
-fi
-
-echo "100     "$NET_INTERFACE"_table" >> /etc/iproute2/rt_tables
-echo '0       unspec' >> /etc/iproute2/rt_tables
+cat << EOF > /etc/iproute2/rt_tables
+255     local
+254     main
+253     default
+200     redsocks_proxy_table
+150     "$NET_INTERFACE"_table
+0       unspec
+EOF
 
 echo "Configure network service"
 
@@ -236,20 +213,7 @@ ip route add $INTERNAL_NET dev redsocks_proxy src $REDSOCKS_IP table redsocks_pr
 ip route add default via $REDSOCKS_IP dev redsocks_proxy table redsocks_proxy_table metric 200
 ip rule add from ${NET_IP}/32 table ${NET_INTERFACE}_table
 ip rule add from ${REDSOCKS_IP}/32 table redsocks_proxy_table
-EOF
 
-if [ "$INSTALL_BYEDPI" -eq 1 ]; then
-cat << EOF >> /scripts/custom-network.sh
-ip link add link $NET_INTERFACE name redsocks_byedpi type macvlan mode bridge
-ip addr add ${BYEDPI_IP}/24 dev redsocks_byedpi
-ip link set redsocks_byedpi up
-ip route add $INTERNAL_NET1 dev redsocks_proxy src $BYEDPI_IP table redsocks_proxy_table
-ip route add default via $BYEDPI_IP dev redsocks_byedpi table redsocks_byedpi_table metric 150
-ip rule add from ${BYEDPI_IP}/32 table redsocks_byedpi_table
-EOF
-fi
-
-cat << EOF >> /scripts/custom-network.sh
 iptables -F
 iptables -t nat -F
 
@@ -275,39 +239,6 @@ iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination $NET_
 iptables -t nat -A PREROUTING -p tcp -s $REDSOCKS_IP -j REDSOCKS
 iptables -t nat -A OUTPUT -p tcp -s $REDSOCKS_IP -j REDSOCKS
 
-EOF
-
-if [ "$INSTALL_BYEDPI" -eq 1 ]; then	
-cat << EOF >> /scripts/custom-network.sh
-iptables -t nat -N BYEDPI
-iptables -t nat -A BYEDPI -d 0.0.0.0/8 -j RETURN
-iptables -t nat -A BYEDPI -d 10.0.0.0/8 -j RETURN
-iptables -t nat -A BYEDPI -d 127.0.0.0/8 -j RETURN
-iptables -t nat -A BYEDPI -d 169.254.0.0/16 -j RETURN
-iptables -t nat -A BYEDPI -d 172.16.0.0/12 -j RETURN
-iptables -t nat -A BYEDPI -d 192.168.0.0/16 -j RETURN
-iptables -t nat -A BYEDPI -d 224.0.0.0/4 -j RETURN
-iptables -t nat -A BYEDPI -d 240.0.0.0/4 -j RETURN	
-
-iptables -t nat -A BYEDPI -p tcp --dport 80 -j REDIRECT --to-ports 12346
-iptables -t nat -A BYEDPI -p tcp --dport 8080 -j REDIRECT --to-ports 12346
-iptables -t nat -A BYEDPI -p tcp --dport 443 -j REDIRECT --to-ports 12346
-
-iptables -t nat -A PREROUTING -p tcp --dport 80 -s $REDSOCKS_IP -j DNAT --to-destination $BYEDPI_IP
-iptables -t nat -A PREROUTING -p tcp --dport 8080 -s $REDSOCKS_IP -j DNAT --to-destination $BYEDPI_IP
-iptables -t nat -A PREROUTING -p tcp --dport 443 -s $REDSOCKS_IP -j DNAT --to-destination $BYEDPI_IP
-iptables -t nat -A PREROUTING -p tcp --dport 80 -s $NET_IP -j DNAT --to-destination $BYEDPI_IP
-iptables -t nat -A PREROUTING -p tcp --dport 8080 -s $NET_IP -j DNAT --to-destination $BYEDPI_IP
-iptables -t nat -A PREROUTING -p tcp --dport 443 -s $NET_IP -j DNAT --to-destination $BYEDPI_IP
-
-iptables -t nat -A PREROUTING -p tcp -s $BYEDPI_IP -j BYEDPI
-iptables -t nat -A OUTPUT -p tcp -s $BYEDPI_IP -j BYEDPI
-
-EOF
-fi
-
-cat << EOF >> /scripts/custom-network.sh
-systemctl restart byedpi
 systemctl restart redsocks
 systemctl restart squid
 EOF
@@ -324,6 +255,94 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
+if [ "$KEEPALIVED" == 1 ]; then
+apt-get install keepalived -y
+
+echo "Create redsocks checker script"
+
+cat << EOF > /scripts/keepalived.sh
+#!/bin/bash
+COUNTER1=\$(cat /scripts/vrrp_counter)
+if [ "\$COUNTER1" -ge 4 ]; then 
+        exit 1
+else
+        exit 0
+fi
+EOF
+
+chmod 770 /scripts/keepalived.sh
+
+if [ "$KEEPALIVED_MASTER" == 1 ]; then
+cat << EOF > /etc/keepalived/keepalived.conf
+! Configuration File for keepalived
+global_defs {
+    enable_script_security
+}
+
+vrrp_script proxy_check {
+    script "/scripts/keepalived.sh"
+    interval 3
+    user root
+    weight -60
+}
+
+vrrp_instance redsocks {
+    state MASTER
+    interface $NET_INTERFACE
+    virtual_router_id 254
+    priority 100
+    advert_int 2
+    authentication {
+        auth_type PASS
+        auth_pass $KEEPALIVED_PASSWORD
+    }
+    virtual_ipaddress {
+        $KEEPALIVED_VIP
+    }
+    track_script {
+        proxy_check
+    }
+}
+EOF
+systemctl enable --now keepalived.service
+else
+cat << EOF > /etc/keepalived/keepalived.conf
+global_defs {
+    enable_script_security
+}
+
+vrrp_script proxy_check {
+    script "/scripts/keepalived.sh"
+    interval 3
+    user root
+}
+
+vrrp_instance redsocks {
+    state BACKUP
+    interface $NET_INTERFACE
+    virtual_router_id 254
+    priority 50
+    advert_int 2
+    preempt
+    preempt_delay 2
+    authentication {
+        auth_type PASS
+        auth_pass $KEEPALIVED_PASSWORD
+    }
+    virtual_ipaddress {
+        $KEEPALIVED_VIP
+        
+    }
+    track_script {
+        proxy_check
+    }
+}
+EOF
+systemctl enable --now keepalived.service
+fi
+fi
+cd ~
+rm -rf /build
 systemctl daemon-reload
 systemctl enable --now custom-network
 echo "For normal work need reboot machine"
