@@ -1,24 +1,52 @@
-# SquidFW
-en: This is a transparent squid, with https support, balancing traffic across domains. He sends certain domains to redsocks, the rest to the default gateway.
-The script will automatically install and configure everything. You only need to specify the variables.
-You also need to specify the domains that will be redirected to the proxy. After the string 'cat << EOF > /etc/squid/vpn_sites', specify the domains, in squid format (+-140 line)
-The script was made for alt linux p10, but you can also redo it for other distributions. For squid to work properly, it needs to be rebuilt according to the links below, but you can also use my packages(RPM). By default, my packages are used (+- 94 and 95 lines).
 
+Это отказоустойчивый прозрачный squid, с поддержкой https и балансирующий трафик по доменам. Определенные домены он отправляет на redsocks, остальное на default gateway.
 
+Скрипт автоматически устанавливает и конфигурирует:
 
-ru: Это прозрачный squid, с поддержкой https, балансирующий трафик по доменам. Определенные домены он отправляет на redsocks, остальное на default gateway.
-Скрипт автоматически всё установит и настроит. Нужно только указать переменные.
-Так же нужно указать домены, которые будут перенаправляться на прокси. После строки 'cat << EOF > /etc/squid/vpn_sites' укажите домены, в формате squid (+-140 строка)
-Скрипт сделан под alt linux p10, но вы можете переделать и под другие дистрибутивы. Для правильной работы squid, его необходимо пересобрать в соответствии с ссылками ниже, Но вы так же можете использовать мои пакеты(RPM). По умолчанию используются мои пакеты (+- 94 и 95 строки).
+        squid
+        redsocks
+        keepalive
 
-Variables:
+Если необходимо более 2х объединенных нод, то придется немного править приоритет и вес (Убавляемый при неисправности прокси).
 
-    PROXY_IP='' #ex: 193.123.123.123
-    PROXY_PORT='' #ex: 1234
-    PROXY_LOGIN='J'
-    PROXY_PASSWORD=''
-    HOME_NET='' #ex: 192.168.0.0/16
-    INTERNAL_NET='' #ex: 10.1.0.0/24
+Скрипт сделан под alt linux p10. 
+
+Так как для правильной работы squid, его необходимо пересобрать, прикрепил ссылки ниже, они помогут в этом. Либо же можно использовать мои пакеты, из этого репозитория, по умолчанию они и используютс.
+
+Перед запуском скрипт нужно изменить переменные, находящиеся в начале скрипта, вот пример:
+
+        ##### BEGIN CHANGEABLE VARS #####
+        
+        ##### BASE VARS #####
+        PROXY_IP='1.2.3.4'
+        PROXY_PORT='1234'
+        PROXY_LOGIN='user'
+        PROXY_PASSWORD='password'
+        HOME_NET='192.168.0.0/16' #With prefix (ex: 192.168.100.0/24)
+        INTERNAL_NET='10.1.0.0/24' #ONLY /24 PREFIX
+        
+        ##### KEEPALIVED VARS #####
+        KEEPALIVED=0 #Set 0 or 1 for install vrrp service
+        KEEPALIVED_MASTER=1 #Set 0 or 1 for vrrp master (main node)
+        KEEPALIVED_VIP=192.168.100.254 #HA ip
+        KEEPALIVED_PASSWORD=changeme #Password for link Backup node
+        
+        ##### DOMAINS VARS #####
+        RU_SITES="
+        #Here you can write domain coming from the domains of the vpn_sites
+        #EXAMPLE: You write .com domain in vpn_sites and here you write .avito.com, this domains will be use default gateway
+        .vk.com
+        .habr.com" 
+        
+        VPN_SITES="
+        .2ip.ru
+        .com"
+        
+        ##### LINK VARS #####
+        SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-6.10-alt1.x86_64.rpm'
+        SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-helpers-6.10-alt1.x86_64.rpm'
+
+        ##### END CHANGEABLE VARS #####
 
 Links:
 
