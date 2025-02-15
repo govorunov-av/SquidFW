@@ -100,6 +100,9 @@ check_ip() {
     else
         echo "IP совпадает: \$CURRENT_IP"
         COUNTER1=0
+		if [ "$KEEPALIVED" == 1 ]; then
+			echo \$COUNTER1 > /scripts/vrrp_counter
+        fi
     fi
 }
 
