@@ -26,11 +26,12 @@
         HOME_NET='192.168.0.0/16'
         INTERNAL_NET='10.1.0.0/24' #ONLY /24 PREFIX
         
-        NODE_TYPE=4 #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer
+        NODE_TYPE=1 #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer
         
-        ##### HA VARS #####
+        ##### HA VARS ##### #Dont set "HA VARS" if $NODE_TYPE=1
         KEEPALIVED_VIP=192.168.1.254 #HA ip
         KEEPALIVED_PASSWORD=123changeme321 #Password for link Backup nodes
+        KEEPALIVED_PRIORITY=150 #Recomendation: For master and LB set 150, for first Backup - 100. every next server one type should be lover than the previous
         
         #ONLY ip and weight 2 or 3 type servers. After ":" set proxy speed (in Mbit/s)
         SERVERS_SOCK="
