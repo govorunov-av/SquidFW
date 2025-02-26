@@ -6,25 +6,26 @@ PROXY_IP=''
 PROXY_PORT=''
 PROXY_LOGIN=''
 PROXY_PASSWORD=''
-HOME_NET='' #With prefix (ex: 192.168.100.0/24)
-INTERNAL_NET='10.1.0.0/24' #ONLY /24 PREFIX
+HOME_NET=''
+INTERNAL_NET='' #ONLY /24 PREFIX
 
-##### KEEPALIVED VARS #####
-KEEPALIVED=0 #Set 0 or 1 for install vrrp service
-KEEPALIVED_MASTER=1 #Set 0 or 1 for vrrp master (main node)
-KEEPALIVED_VIP=192.168.100.254 #HA ip
-KEEPALIVED_PASSWORD=changeme #Password for link Backup node
+NODE_TYPE= #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer
 
+##### HA VARS #####
+KEEPALIVED_VIP= #HA ip
+KEEPALIVED_PASSWORD= #Password for link Backup nodes
+KEEPALIVED_PRIORITY=
+#ONLY ip and weight 2 or 3 type servers
+SERVERS_SOCK="
+"
 ##### DOMAINS VARS #####
 RU_SITES="
 #Here you can write domain coming from the domains of the vpn_sites
 #EXAMPLE: You write .com domain in vpn_sites and here you write .avito.com, this domains will be use default gateway
-.vk.com
-.habr.com" 
+"
 
 VPN_SITES="
-.2ip.ru
-.com"
+"
 
 ##### LINK VARS #####
 SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-6.10-alt1.x86_64.rpm'
@@ -36,14 +37,86 @@ NET_INTERFACE=$(ip route get 1.1.1.1 | awk '{print$5; exit}')
 NET_IP=$(ip -br a | grep $(echo ^$NET_INTERFACE) | awk '{print$3}' | cut -d/ -f1)
 GATEWAY=$(ip r | grep default | grep $NET_INTERFACE | awk '{print$3}')
 REDSOCKS_IP=$(echo $INTERNAL_NET | cut -d / -f1 | awk -F. '{print $1 "." $2 "." $3 ".1"}')
+SERVERS_SOCK=$(echo -e "$SERVERS_SOCK" | sed '/^$/d') #Delete empty line from var
+SERVERS_COUNT=$(echo -e "$SERVERS_SOCK" | wc -l)
 
-apt-get update && apt-get install git curl wget make gcc libevent-devel -y 
+if [ $NODE_TYPE == 1 ]; then
+KEEPALIVED=0
+SQUID_LB=0
+fi
+if [ $NODE_TYPE == 2 ]; then
+KEEPALIVED=1
+KEEPALIVED_MASTER=1
+if [ $KEEPALIVED_PRIORITY == "" ]; then
+KEEPALIVED_PRIORITY=150
+fi
+SQUID_LB=0
+fi
+if [ $NODE_TYPE == 3 ]; then
+KEEPALIVED=1
+KEEPALIVED_MASTER=0
+if [ $KEEPALIVED_PRIORITY == "" ]; then
+KEEPALIVED_PRIORITY=100
+fi
+SQUID_LB=0
+fi
+if [ $NODE_TYPE == 4 ]; then
+KEEPALIVED=1
+KEEPALIVED_MASTER=1
+if [ $KEEPALIVED_PRIORITY == "" ]; then
+KEEPALIVED_PRIORITY=150
+fi
+SQUID_LB=1
+fi
+
+
+squid_lb_configure () {
+for ((i=1;i<=$SERVERS_COUNT;i++)); do
+#ii=$(($i+1))
+ii=$i
+WEIGHT=$(echo "$SERVERS_SOCK" | awk -F ':' '{print$2}' |  sed -n "${ii}p")
+IP=$(echo "$SERVERS_SOCK" | awk -F ':' '{print$1}' | sed -n "${ii}p")
+declare "SRV_IP_$i"="$IP"
+declare "SRV_WEIGHT_$i"="$WEIGHT"
+done 
+cat << EOF > /etc/squid/squid.conf
+http_port 3328
+http_port 3028 intercept
+https_port 3029 intercept ssl-bump options=ALL:NO_SSLv3 connection-auth=off cert=/etc/squid/ssl_cert/squidCA.pem #intercept https port
+sslproxy_cert_error allow all
+acl step1 at_step SslBump1
+ssl_bump peek step1
+ssl_bump splice all
+sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/spool/squid/ssl_db -M 4MB
+
+access_log /var/log/squid/access.log
+cache_log /var/log/squid/cache.log
+
+acl localnet src $HOME_NET
+acl localnet src $INTERNAL_NET
+http_access allow localnet
+http_access deny all
+
+never_direct allow all
+EOF
+for ((i=1;i<=$SERVERS_COUNT;i++)); do
+SRV_IP="SRV_IP_$i"
+SRV_WEIGHT="SRV_WEIGHT_$i"
+cat << EOF >> /etc/squid/squid.conf
+
+cache_peer ${!SRV_IP} parent 3228 0 no-digest round-robin weight=${!SRV_WEIGHT} name=proxy_$i
+cache_peer_access proxy_$i allow localnet
+EOF
+done
+}
+
+apt-get update && apt-get install git curl wget make gcc libevent-devel -y
 mkdir /build && cd /build
 echo "Install and configure redsocks"
 git clone https://github.com/darkk/redsocks.git
 cd /build/redsocks/
-make 
-cp redsocks /usr/local/bin/redsocks 
+make
+cp redsocks /usr/local/bin/redsocks
 echo "Create redsocks_proxy.conf"
 cat << EOF > /etc/redsocks_proxy.conf
 base {
@@ -100,15 +173,15 @@ check_ip() {
     else
         echo "IP совпадает: \$CURRENT_IP"
         COUNTER1=0
-		if [ "$KEEPALIVED" == 1 ]; then
-			echo \$COUNTER1 > /scripts/vrrp_counter
+        if [ "$KEEPALIVED" == 1 ]; then
+        echo \$COUNTER1 > /scripts/vrrp_counter
         fi
     fi
 }
 
 while true; do
     check_ip
-    sleep 35  # Пауза в 35 секунд
+    sleep 15
 done
 EOF
 
@@ -126,7 +199,7 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
-useradd redsocks 
+useradd redsocks
 usermod -aG redsocks redsocks
 chown redsocks:redsocks /etc/redsocks_proxy.conf
 chmod 770 /etc/redsocks_proxy.conf
@@ -137,7 +210,7 @@ wget $SQUID_LINK # Пересобранный пакет squid
 wget $SQUID_HELPER_LINK  # Пересобранный пакет squid-helpers (Автоматически генерируется при сборке squid)
 apt-get install squid -y #Установка squid, только ради зависимостей
 apt-get remove squid -y #Удаление squid, но зависимости оставляем
-apt-get install squid-6.10-alt1.x86_64.rpm -y && apt-get install squid-helpers-6.10-alt1.x86_64.rpm -y 
+apt-get install squid-6.10-alt1.x86_64.rpm -y && apt-get install squid-helpers-6.10-alt1.x86_64.rpm -y
 
 echo "Create base config for squid"
 cat << EOF > /etc/squid/squid.conf
@@ -169,7 +242,7 @@ cache_log /var/log/squid/cache.log
 cache_mem 128 MB
 maximum_object_size_in_memory 512 KB
 maximum_object_size 1024 KB
-cache_dir aufs /opt/squid 1000 16 256
+cache_dir ufs /opt/squid 1000 16 256
 EOF
 
 echo "Creating CA certificate"
@@ -177,7 +250,7 @@ mkdir /etc/squid/ssl_cert
 openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 -extensions v3_ca -keyout /etc/squid/ssl_cert/squid.key -out /etc/squid/ssl_cert/squid.crt -subj "/C=US/ST=State/L=City/O=Organization/OU=Department/CN=bfdscbvwrdvc.locedaq"
 cat /etc/squid/ssl_cert/squid.key > /etc/squid/ssl_cert/squidCA.pem && cat /etc/squid/ssl_cert/squid.crt >> /etc/squid/ssl_cert/squidCA.pem
 /usr/lib/squid/security_file_certgen -c -s  /var/spool/squid/ssl_db -M 4MB
-mkdir /opt/squid # squid cache dir 
+mkdir /opt/squid # squid cache dir
 chown -R squid:squid /opt/squid && chmod 770 /opt/squid
 squid -z
 
@@ -200,7 +273,7 @@ cat << EOF > /etc/iproute2/rt_tables
 254     main
 253     default
 200     redsocks_proxy_table
-150     "$NET_INTERFACE"_table
+150     ${NET_INTERFACE}_table
 0       unspec
 EOF
 
@@ -233,12 +306,25 @@ iptables -t nat -A REDSOCKS -d 240.0.0.0/4 -j RETURN
 iptables -t nat -A REDSOCKS -p tcp --dport 80 -j REDIRECT --to-ports 12345
 iptables -t nat -A REDSOCKS -p tcp --dport 8080 -j REDIRECT --to-ports 12345
 iptables -t nat -A REDSOCKS -p tcp --dport 443 -j REDIRECT --to-ports 12345
-# Redirect from iif to squid
+#Redirect to squid
+EOF
+if [ $SQUID_LB == 1 ]; then
+cat << EOF >> /scripts/custom-network.sh
+iptables -t nat -A PREROUTING -p tcp --dport 443 -j DNAT --to-destination $NET_IP:3029
+iptables -t nat -A PREROUTING -p tcp --dport 8443 -j DNAT --to-destination $NET_IP:3029
+iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination $NET_IP:3028
+iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination $NET_IP:3028
+EOF
+else
+cat << EOF >> /scripts/custom-network.sh
 iptables -t nat -A PREROUTING -p tcp --dport 443 -j DNAT --to-destination $NET_IP:3129
 iptables -t nat -A PREROUTING -p tcp --dport 8443 -j DNAT --to-destination $NET_IP:3129
 iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination $NET_IP:3128
 iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination $NET_IP:3128
+EOF
+fi
 
+cat << EOF >> /scripts/custom-network.sh
 iptables -t nat -A PREROUTING -p tcp -s $REDSOCKS_IP -j REDSOCKS
 iptables -t nat -A OUTPUT -p tcp -s $REDSOCKS_IP -j REDSOCKS
 
@@ -266,7 +352,7 @@ echo "Create redsocks checker script"
 cat << EOF > /scripts/keepalived.sh
 #!/bin/bash
 COUNTER1=\$(cat /scripts/vrrp_counter)
-if [ "\$COUNTER1" -ge 4 ]; then 
+if [ "\$COUNTER1" -ge 2 ]; then
         exit 1
 else
         exit 0
@@ -293,7 +379,7 @@ vrrp_instance redsocks {
     state MASTER
     interface $NET_INTERFACE
     virtual_router_id 254
-    priority 100
+    priority $KEEPALIVED_PRIORITY
     advert_int 2
     authentication {
         auth_type PASS
@@ -307,7 +393,11 @@ vrrp_instance redsocks {
     }
 }
 EOF
+if [ $SQUID_LB == 1 ]; then
+squid_lb_configure
+fi
 systemctl enable --now keepalived.service
+systemctl restart keepalived.service
 else
 cat << EOF > /etc/keepalived/keepalived.conf
 global_defs {
@@ -318,13 +408,14 @@ vrrp_script proxy_check {
     script "/scripts/keepalived.sh"
     interval 3
     user root
+    weight -60
 }
 
 vrrp_instance redsocks {
     state BACKUP
     interface $NET_INTERFACE
     virtual_router_id 254
-    priority 50
+    priority $KEEPALIVED_PRIORITY
     advert_int 2
     preempt
     preempt_delay 2
@@ -334,7 +425,7 @@ vrrp_instance redsocks {
     }
     virtual_ipaddress {
         $KEEPALIVED_VIP
-        
+
     }
     track_script {
         proxy_check
@@ -342,10 +433,14 @@ vrrp_instance redsocks {
 }
 EOF
 systemctl enable --now keepalived.service
+systemctl restart keepalived.service
 fi
 fi
+
 cd ~
 rm -rf /build
 systemctl daemon-reload
 systemctl enable --now custom-network
+systemctl restart custom-network
+
 echo "For normal work need reboot machine"
