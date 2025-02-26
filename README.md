@@ -14,39 +14,41 @@
 ![{9C9DF2A8-6EFD-44F4-9BA1-A1A60E53E615}](https://github.com/user-attachments/assets/09e2f95d-4d50-4ba6-945c-1cc1e280d550)
 
 
-Перед запуском скрипт нужно изменить переменные, находящиеся в начале скрипта, вот пример:
+Перед запуском скрипт нужно изменить переменные, находящиеся в начале скрипта:
 
         ##### BEGIN CHANGEABLE VARS #####
         
         ##### BASE VARS #####
-        PROXY_IP='1.2.3.4'
-        PROXY_PORT='1234'
-        PROXY_LOGIN='user'
-        PROXY_PASSWORD='password'
-        HOME_NET='192.168.0.0/16' #With prefix (ex: 192.168.100.0/24)
+        PROXY_IP='123.123.123.123'
+        PROXY_PORT='12332'
+        PROXY_LOGIN='user123321'
+        PROXY_PASSWORD='123password321'
+        HOME_NET='192.168.0.0/16'
         INTERNAL_NET='10.1.0.0/24' #ONLY /24 PREFIX
         
-        ##### KEEPALIVED VARS #####
-        KEEPALIVED=0 #Set 0 or 1 for install vrrp service
-        KEEPALIVED_MASTER=1 #Set 0 or 1 for vrrp master (main node)
-        KEEPALIVED_VIP=192.168.100.254 #HA ip
-        KEEPALIVED_PASSWORD=changeme #Password for link Backup node
+        NODE_TYPE=4 #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer
         
+        ##### HA VARS #####
+        KEEPALIVED_VIP=192.168.1.254 #HA ip
+        KEEPALIVED_PASSWORD=123changeme321 #Password for link Backup nodes
+        
+        #ONLY ip and weight 2 or 3 type servers. After ":" set proxy speed (in Mbit/s)
+        SERVERS_SOCK="
+        192.168.16.2:70
+        192.168.16.3:9
+        "
         ##### DOMAINS VARS #####
         RU_SITES="
         #Here you can write domain coming from the domains of the vpn_sites
-        #EXAMPLE: You write .com domain in vpn_sites and here you write .avito.com, this domains will be use default gateway
-        .vk.com
-        .habr.com" 
+        #EXAMPLE: You write .com domain in vpn_sites and here you write .habr.com, this domains will be use default gateway
+        .habr.com"
         
         VPN_SITES="
-        .2ip.ru
         .com"
         
         ##### LINK VARS #####
         SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-6.10-alt1.x86_64.rpm'
         SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-helpers-6.10-alt1.x86_64.rpm'
-
         ##### END CHANGEABLE VARS #####
 
 Links:
