@@ -11,7 +11,7 @@
 
 Предполагаемая топология выглядит следующим образом:
 
-![{9C9DF2A8-6EFD-44F4-9BA1-A1A60E53E615}](https://github.com/user-attachments/assets/09e2f95d-4d50-4ba6-945c-1cc1e280d550)
+![{89F79CD8-D8B1-4832-ABC1-1736A8CA6FCD}](https://github.com/user-attachments/assets/daad7916-aa0d-4dae-b950-e9a19fa61922)
 
 
 Перед запуском скрипт нужно изменить переменные, находящиеся в начале скрипта:
