@@ -11,7 +11,7 @@
 
 Предполагаемая топология выглядит следующим образом:
 
-![{89F79CD8-D8B1-4832-ABC1-1736A8CA6FCD}](https://github.com/user-attachments/assets/daad7916-aa0d-4dae-b950-e9a19fa61922)
+![New draw io Diagram-176971 drawio](https://github.com/user-attachments/assets/b743adc7-8765-4ebb-ad82-aef79da37313)
 
 
 Перед запуском скрипт нужно изменить переменные, находящиеся в начале скрипта:
