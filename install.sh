@@ -261,7 +261,7 @@ if [[ \$EXIT -gt 0 || \$SPEERD == 0 ]]; then
 echo Error Exit or Speed = 0
 else
 AVERAGE=\$(echo "(\$SPEED1 + \$SPEED2 + \$SPEED3)" /3 | bc)
-if [[ \$AVERAGE == 0 ]]; then
+if [[ \$AVERAGE == "" || \$AVERAGE == 0 ]]; then
 echo ERROR - AVERAGE SPEED = 0
 else
 consul kv put squid/clients/$NET_IP/weight \$AVERAGE
