@@ -288,7 +288,7 @@ cat << EOF > /etc/systemd/system/weight_test.timer
 Description=Run speedtest
 
 [Timer]
-OnCalendar=*-*-* *:0/5:0 
+OnCalendar=*-*-* 0/5:0:0 
 
 Persistent=true
 
