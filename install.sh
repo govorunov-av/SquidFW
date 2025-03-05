@@ -9,17 +9,17 @@ PROXY_PASSWORD=''
 HOME_NET=''
 INTERNAL_NET='' #ONLY /24 PREFIX
 
-NODE_TYPE=  #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer
+NODE_TYPE= #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer
+
 
 ##### HA VARS #####
 KEEPALIVED_VIP= #HA ip
 KEEPALIVED_PASSWORD= #Password for link Backup nodes
 KEEPALIVED_PRIORITY=
-
 #ONLY ip and weight 2 or 3 type servers
 
 LB_SERVER=
-CONSUL_ENCRYPT=
+CONSUL_ENCRYPT=''
 
 ##### DOMAINS VARS #####
 RU_SITES="
@@ -297,6 +297,61 @@ WantedBy=timers.target
 EOF
 chmod +x /scripts/{speedtest.sh,consul_check_redsocks.sh}
 chmod +x /scripts/consul/consul.sh
+
+cat << EOF > /scripts/sites_importer.sh
+files_changer () {
+FILE_NAME="
+ru_sites
+vpn_sites"
+FILE_PATH="squid/configs/"
+FILES_COUNT=\$(echo \$FILE_NAME | wc -w)
+for ((i=1;i<=\$FILES_COUNT;i++)); do
+FILE=\$(echo \$FILE_NAME | awk \\{print\\$\$i\\})
+FILE_STATUS=\$(consul kv get \${FILE_PATH}\${FILE} | wc -l)
+echo consul kv get \${FILE_PATH}\${FILE}
+if [ \$FILE_STATUS == 0 ]; then
+echo "Config in consul empty, filling .."
+consul kv put \${FILE_PATH}\${FILE} @/etc/squid/\$FILE
+else
+CONSUL_FILE=\$(consul kv get \${FILE_PATH}\${FILE})
+LOCAL_FILE=\$(cat /etc/squid/\$FILE)
+if [[ \$CONSUL_FILE == \$LOCAL_FILE ]]; then
+echo "Consul and local file ru_sites equal"
+else
+echo "Consul and local file ru_sites not equal, copy consul file to local"
+consul kv get \${FILE_PATH}\${FILE} > /etc/squid/\$FILE
+SQUID_RESTART=1
+fi
+fi
+done
+}
+check_status () {
+CONSUL_STATUS=\$(consul members | grep server | awk '{print\$3}')
+if [[ \$CONSUL_STATUS == "alive" ]]; then
+files_changer
+else
+echo "Consul main server failed, consul status = \$CONSUL_STATUS "
+fi
+}
+
+while true; do
+check_status
+sleep 360
+done
+EOF
+chmod +x /scripts/sites_importer.sh
+cat << EOF > /etc/systemd/system/sitest_importer.service
+[Unit]
+Description=Checking sites files in consul and changing
+After=network.target
+
+[Service]
+ExecStart=bash /scripts/sites_importer.sh
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
 }
 consul_master () {
 CHECK_INSTALL_CONSUL_MASTER=$(cat /scripts/consul/consul.json | wc -l)
@@ -317,7 +372,7 @@ cat << EOF > /scripts/consul/consul.json
 EOF
 else
 echo Consul master already installed, exporting CONSUL_ENCRYPT var
-CONSUL_ENCRYPT=$(cat /scripts/consul/consul.json | grep encrypt | awk -F '"' '{print$4}')
+CONSUL_ENCRYPT=$(consul keyring -list | tail -n 1 | awk '{print$1}')
 fi
 }
 
@@ -667,6 +722,7 @@ consul_worker
 cat << EOF >> /scripts/custom-network.sh
 systemctl restart weight_test.service
 systemctl restart weight_test.timer
+systemctl restart sitest_importer.service
 EOF
 fi
 fi
