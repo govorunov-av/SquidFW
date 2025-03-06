@@ -1,39 +1,31 @@
 #!/bin/bash
 ##### BEGIN CHANGEABLE VARS #####
+##### REQUIRED VARS #####
+HOME_NET=''
+INTERNAL_NET='' #ONLY /24 PREFIX
+NODE_TYPE= #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer
+SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-6.10-alt1.x86_64.rpm'
+SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-helpers-6.10-alt1.x86_64.rpm'
+##########
 
-##### BASE VARS #####
+##### VARS FOR 1,2,3 NODES TYPE #####
 PROXY_IP=''
 PROXY_PORT=''
 PROXY_LOGIN=''
 PROXY_PASSWORD=''
-HOME_NET=''
-INTERNAL_NET='' #ONLY /24 PREFIX
-
-NODE_TYPE= #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer
-
-
-##### HA VARS #####
-KEEPALIVED_VIP= #HA ip
-KEEPALIVED_PASSWORD= #Password for link Backup nodes
-KEEPALIVED_PRIORITY=
-#ONLY ip and weight 2 or 3 type servers
-
-LB_SERVER=
-CONSUL_ENCRYPT=''
-
-##### DOMAINS VARS #####
 RU_SITES="
-#Here you can write domain coming from the domains of the vpn_sites
-#EXAMPLE: You write .com domain in vpn_sites and here you write .avito.com, this domains will be use default gateway
 "
-
 VPN_SITES="
 "
+##########
 
-##### LINK VARS #####
-SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-6.10-alt1.x86_64.rpm'
-SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-helpers-6.10-alt1.x86_64.rpm'
-
+##### VARS FOR 2,3,4 NODES TYPE #####
+KEEPALIVED_VIP= #HA ip
+KEEPALIVED_PASSWORD= #Password for link Backup nodes
+#SET LB_SERVER and CONSUL_ENCRYPT FOR 3 BODE TYPE, if need to connect to node 4 type
+LB_SERVER=
+CONSUL_ENCRYPT=''
+##########
 ##### END CHANGEABLE VARS #####
 
 NET_INTERFACE=$(ip route get 1.1.1.1 | awk '{print$5; exit}')
@@ -56,9 +48,6 @@ fi
 if [ $NODE_TYPE == 3 ]; then
 KEEPALIVED=1
 KEEPALIVED_MASTER=0
-if [ $KEEPALIVED_PRIORITY == "" ]; then
-KEEPALIVED_PRIORITY=100
-fi
 SQUID_LB=0
 CONSUL_INSTALL=1
 CONSUL_MASTER=0
@@ -66,19 +55,14 @@ fi
 if [ $NODE_TYPE == 4 ]; then
 KEEPALIVED=1
 KEEPALIVED_MASTER=1
-if [ $KEEPALIVED_PRIORITY == "" ]; then
-KEEPALIVED_PRIORITY=150
-fi
 SQUID_LB=1
 CONSUL_INSTALL=1
 CONSUL_MASTER=1
 fi
 
-
-squid_lb_configure () {
+squid_lb () {
 CACHE_MEM=$(echo $(free -h  | grep Mem | awk '{print$2}' | awk -F "M" '{print$1}' | awk -F "G" '{print$1}')*1024*0.78/1 | bc )
 CACHE_DISK=$(echo $(df -h | grep "/$" | awk '{print$4}' | awk -F "G" '{print$1}')*1024/2 | bc)
-mkdir /opt/squid
 cat << EOF > /etc/squid/squid.conf
 http_port 3328
 http_port 3028 intercept
@@ -108,7 +92,7 @@ EOF
 cat << EOF > /scripts/peer_install.sh
 squid_peers () {
 SERVERS_COUNT=\$(consul members | grep client | awk '{print\$2}' | awk -F ":" '{print\$1}' | wc -l)
-MEMBERS=\$(consul members | grep client | awk '{print\$2}' | awk -F ":" '{print\$1}')
+MEMBERS=\$(consul members | grep client | grep alive | awk '{print\$2}' | awk -F ":" '{print\$1}')
 if [ \$SERVERS_COUNT == 0 ]; then
 echo EREROR, consul members = 0
 exit 1
@@ -352,10 +336,46 @@ Restart=on-failure
 [Install]
 WantedBy=multi-user.target
 EOF
+cat << EOF > /scripts/priority_importer.sh 
+#!/bin/bash
+func () {
+LOCAL_PRIORITY=\$(cat /etc/keepalived/keepalived.conf | grep priority | awk '{print\$2}')
+CONSUL_PRIORITY=\$(consul kv get squid/clients/$NET_IP/priority)
+STATUS=\$(consul kv get squid/clients/$NET_IP/priority 2>&1 | grep Error -c)
+if [[ \$STATUS -ge 1 ]]; then
+echo "Error, keepalived priority in consul empty, filling .."
+consul kv put squid/clients/$NET_IP/priority \$LOCAL_PRIORITY
+else
+if [[ \$LOCAL_PRIORITY == \$CONSUL_PRIORITY ]]; then
+echo Priority match
+else
+echo "Priority not match, filling .."
+sed -i "s/priority [0-9]*/priority \$CONSUL_PRIORITY/" /etc/keepalived/keepalived.conf
+fi
+fi
+}
+while true; do
+func
+sleep 360
+done
+EOF
+cat << EOF > /etc/systemd/system/priority_importer.service
+[Unit]
+Description=Checking priority in consul and changing in local if need
+After=network.target
+
+[Service]
+ExecStart=bash /scripts/priority_importer.sh
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+chmod +x /scripts/priority_importer.sh
 }
 consul_master () {
-CHECK_INSTALL_CONSUL_MASTER=$(cat /scripts/consul/consul.json | wc -l)
-if [[ $CHECK_INSTALL_CONSUL_MASTER -gt 4 ]]; then
+CHECK_INSTALL_CONSUL_MASTER=$(ls -l /scripts/consul/consul.json | wc -l)
+if [[ $CHECK_INSTALL_CONSUL_MASTER == 0 ]]; then
 CONSUL_ENCRYPT=$(consul keygen)
 cat << EOF > /scripts/consul/consul.json
 {
@@ -376,9 +396,8 @@ CONSUL_ENCRYPT=$(consul keyring -list | tail -n 1 | awk '{print$1}')
 fi
 }
 
-
-apt-get update && apt-get install git curl wget make gcc libevent-devel -y
-mkdir /build && cd /build
+redsocks_install () {
+cd /build
 echo "Install and configure redsocks"
 git clone https://github.com/darkk/redsocks.git
 cd /build/redsocks/
@@ -406,8 +425,6 @@ redsocks {
         password = "$PROXY_PASSWORD";
 }
 EOF
-echo "Create redsocks run script"
-mkdir /scripts
 
 cat << EOF > /scripts/redsocks.sh
 #!/bin/bash
@@ -470,7 +487,8 @@ useradd redsocks
 usermod -aG redsocks redsocks
 chown redsocks:redsocks /etc/redsocks_proxy.conf
 chmod 770 /etc/redsocks_proxy.conf
-
+}
+squid_install () { 
 echo "Install and configure squid"
 mkdir /build/squid && cd /build/squid
 wget $SQUID_LINK # Пересобранный пакет squid
@@ -513,7 +531,9 @@ mkdir /etc/squid/ssl_cert
 openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 -extensions v3_ca -keyout /etc/squid/ssl_cert/squid.key -out /etc/squid/ssl_cert/squid.crt -subj "/C=US/ST=State/L=City/O=Organization/OU=Department/CN=bfdscbvwrdvc.locedaq"
 cat /etc/squid/ssl_cert/squid.key > /etc/squid/ssl_cert/squidCA.pem && cat /etc/squid/ssl_cert/squid.crt >> /etc/squid/ssl_cert/squidCA.pem
 /usr/lib/squid/security_file_certgen -c -s  /var/spool/squid/ssl_db -M 4MB
-chown -R squid:squid /opt/squid && chmod 770 /opt/squid
+mkdir /opt/squid
+chown -R squid:squid /opt/squid 
+chmod 770 /opt/squid
 squid -z
 
 echo "Configure ru domains file"
@@ -534,11 +554,19 @@ cat << EOF > /etc/iproute2/rt_tables
 255     local
 254     main
 253     default
+EOF
+if [[ $SQUID_LB != 1 ]]; then
+cat << EOF > /etc/iproute2/rt_tables
 200     redsocks_proxy_table
 150     ${NET_INTERFACE}_table
 0       unspec
 EOF
-
+else
+cat << EOF > /etc/iproute2/rt_tables
+150     ${NET_INTERFACE}_table
+0       unspec
+EOF
+fi
 echo "Configure network service"
 
 cat << EOF > /scripts/custom-network.sh
@@ -571,7 +599,7 @@ iptables -t nat -A REDSOCKS -p tcp --dport 443 -j REDIRECT --to-ports 12345
 #Redirect to squid
 EOF
 if [ $SQUID_LB == 1 ]; then
-cat << EOF >> /scripts/custom-network.sh
+cat << EOF > /scripts/custom-network.sh
 iptables -t nat -A PREROUTING -p tcp --dport 443 -j DNAT --to-destination $NET_IP:3029
 iptables -t nat -A PREROUTING -p tcp --dport 8443 -j DNAT --to-destination $NET_IP:3029
 iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination $NET_IP:3028
@@ -586,11 +614,15 @@ iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination $NET_
 EOF
 fi
 
+if [ $SQUID_LB != 1 ]; then
 cat << EOF >> /scripts/custom-network.sh
 iptables -t nat -A PREROUTING -p tcp -s $REDSOCKS_IP -j REDSOCKS
 iptables -t nat -A OUTPUT -p tcp -s $REDSOCKS_IP -j REDSOCKS
 
 systemctl restart redsocks
+EOF
+fi
+cat << EOF >> /scripts/custom-network.sh
 systemctl restart squid
 EOF
 
@@ -605,6 +637,41 @@ Restart=on-failure
 [Install]
 WantedBy=multi-user.target
 EOF
+}
+
+#Start install process 
+apt-get update && apt-get install git curl wget make gcc libevent-devel -y
+mkdir /build
+mkdir /scripts
+squid_install
+if [[ $SQUID_LB == 1 ]]; then
+squid_lb
+else
+redsocks_install
+fi
+if [ $CONSUL_INSTALL == 1 ]; then
+consul_install
+if [ $CONSUL_MASTER == 1 ]; then
+consul_master
+systemctl enable --now consul
+sleep 10
+KEEPALIVED_PRIORITY=$(echo 1000-10*$(consul members | grep server | wc -l) | bc)
+consul kv put squid/clients/$NET_IP/priority $KEEPALIVED_PRIORITY
+echo ON BACKUP NODE SET \$CONSUL_ENCRYPT=$CONSUL_ENCRYPT
+else
+consul_worker
+systemctl enable --now consul
+cat << EOF >> /scripts/custom-network.sh
+systemctl restart weight_test.service
+systemctl restart weight_test.timer
+systemctl restart sitest_importer.service
+systemctl restart priority_importer.service
+EOF
+sleep 10
+KEEPALIVED_PRIORITY=$(echo 970-10*$(consul members | wc -l) | bc)
+consul kv put squid/clients/$NET_IP/priority $KEEPALIVED_PRIORITY
+fi
+fi
 
 if [ "$KEEPALIVED" == 1 ]; then
 apt-get install keepalived -y
@@ -639,7 +706,6 @@ vrrp_script proxy_check {
     user root
 }
 EOF
-squid_lb_configure
 cat << EOF >> /scripts/custom-network.sh
 systemctl restart squid_peer.service
 EOF
@@ -709,23 +775,6 @@ EOF
 fi
 fi
 
-if [ $CONSUL_INSTALL == 1 ]; then
-consul_install
-cat << EOF >> /scripts/custom-network.sh
-systemctl restart consul.service
-EOF
-if [ $CONSUL_MASTER == 1 ]; then
-consul_master
-echo ON BACKUP NODE SET \$CONSUL_ENCRYPT=$CONSUL_ENCRYPT
-else
-consul_worker
-cat << EOF >> /scripts/custom-network.sh
-systemctl restart weight_test.service
-systemctl restart weight_test.timer
-systemctl restart sitest_importer.service
-EOF
-fi
-fi
 
 cd ~
 rm -rf /build
