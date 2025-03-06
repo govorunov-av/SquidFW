@@ -22,7 +22,7 @@ VPN_SITES="
 ##### VARS FOR 2,3,4 NODES TYPE #####
 KEEPALIVED_VIP= #HA ip
 KEEPALIVED_PASSWORD= #Password for link Backup nodes
-#SET LB_SERVER and CONSUL_ENCRYPT FOR 3 BODE TYPE, if need to connect to node 4 type
+#SET LB_SERVER and CONSUL_ENCRYPT FOR 3 NODE TYPE, if need to connect to node 4 type
 LB_SERVER=
 CONSUL_ENCRYPT=''
 ##########
