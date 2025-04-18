@@ -655,7 +655,7 @@ if [ $CONSUL_MASTER == 1 ]; then
 consul_master
 systemctl enable --now consul
 sleep 10
-KEEPALIVED_PRIORITY=$(echo 1000-10*$(consul members | grep server | wc -l) | bc)
+KEEPALIVED_PRIORITY=$(echo 255-5*$(consul members | grep server | wc -l) | bc)
 consul kv put squid/clients/$NET_IP/priority $KEEPALIVED_PRIORITY
 echo ON BACKUP NODE SET \$CONSUL_ENCRYPT=$CONSUL_ENCRYPT
 else
@@ -668,7 +668,7 @@ systemctl restart sitest_importer.service
 systemctl restart priority_importer.service
 EOF
 sleep 10
-KEEPALIVED_PRIORITY=$(echo 970-10*$(consul members | wc -l) | bc)
+KEEPALIVED_PRIORITY=$(echo 250-5*$(consul members | wc -l) | bc)
 consul kv put squid/clients/$NET_IP/priority $KEEPALIVED_PRIORITY
 fi
 fi
