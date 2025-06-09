@@ -69,9 +69,9 @@
         consul kv put squid/clients/$NET_IP/weight 75
 
 
-Так же keepalived priority устанавливается автоматически, при установки, и храниться в consul, можно изменить вручную.
+Так же keepalived priority устанавливается автоматически, при установки, и храниться в consul, можно изменить вручную. Важно помнить, что keepalived поддерживает значение приоритета от 1 до 255.
 
-        consul kv put squid/clients/$NET_IP/priority 900
+        consul kv put squid/clients/$NET_IP/priority 241
 
 Consul мониторит ещё и работу redsocks (по curl ifconfig --interface $INTERNAL_NET_IP ), можно использовать web страницу consul`а для мониторинга. http://$LB_SERVER:8500
         
