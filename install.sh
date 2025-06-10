@@ -300,11 +300,11 @@ else
 CONSUL_FILE=\$(consul kv get \${FILE_PATH}\${FILE})
 LOCAL_FILE=\$(cat /etc/squid/\$FILE)
 if [[ \$CONSUL_FILE == \$LOCAL_FILE ]]; then
-echo "Consul and local file ru_sites equal"
+echo "Consul and local file \$FILE equal"
 else
-echo "Consul and local file ru_sites not equal, copy consul file to local"
+echo "Consul and local file \$FILE not equal, copy consul file to local"
 consul kv get \${FILE_PATH}\${FILE} > /etc/squid/\$FILE
-SQUID_RESTART=1
+systemctl reload squid
 fi
 fi
 done
