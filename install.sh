@@ -645,7 +645,7 @@ EOF
 rsyslog () {
 #install rsyslog client for centralized logging
 apt-get install rsyslog-classic -y
-echo $RSYSLOG_COMMAND > /etc/rsyslog.d/client.conf
+echo "$RSYSLOG_COMMAND" > /etc/rsyslog.d/client.conf
 sed -i 's/#ForwardToSyslog=no/ForwardToSyslog=yes/' /etc/systemd/journald.conf
 systemctl enable --now rsyslog
 }
