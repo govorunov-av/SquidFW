@@ -1,30 +1,33 @@
-#!/bin/bash
 ##### BEGIN CHANGEABLE VARS #####
 ##### REQUIRED VARS #####
-HOME_NET=''
-INTERNAL_NET='' #ONLY /24 PREFIX
-NODE_TYPE= #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer
+HOME_NET='<net>/<prefix>'
+INTERNAL_NET='<net>/<prefix>' #ONLY /24 PREFIX
+NODE_TYPE=<int> #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer
 SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-6.10-alt1.x86_64.rpm'
 SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-helpers-6.10-alt1.x86_64.rpm'
+RSYSLOG_INSTALL=<int> #Set 1 or 0
+RSYSLOG_COMMAND='*.err;*.crit;*.alert;*.emerg @@<rsyslog_server_ip>'
 ##########
 
 ##### VARS FOR 1,2,3 NODES TYPE #####
-PROXY_IP=''
-PROXY_PORT=''
-PROXY_LOGIN=''
-PROXY_PASSWORD=''
+PROXY_IP='<proxy_ip>'
+PROXY_PORT='<proxy_port>'
+PROXY_LOGIN='<proxy_login>'
+PROXY_PASSWORD='<proxy_password>'
 RU_SITES="
+<domain_list>
 "
 VPN_SITES="
+<domain_list>
 "
 ##########
 
 ##### VARS FOR 2,3,4 NODES TYPE #####
-KEEPALIVED_VIP= #HA ip
-KEEPALIVED_PASSWORD= #Password for link Backup nodes
-#SET LB_SERVER and CONSUL_ENCRYPT FOR 3 NODE TYPE, if need to connect to node 4 type
-LB_SERVER=
-CONSUL_ENCRYPT=''
+KEEPALIVED_VIP=<vip_ip> #HA ip
+KEEPALIVED_PASSWORD=<password> #Password for link Backup nodes
+#SET LB_SERVER and CONSUL_ENCRYPT FOR 3 BODE TYPE, if need to connect to node 4 type
+LB_SERVER=<squid_lb_server_ip>
+CONSUL_ENCRYPT='<encrypt_key>'
 ##########
 ##### END CHANGEABLE VARS #####
 
@@ -639,6 +642,14 @@ WantedBy=multi-user.target
 EOF
 }
 
+rsyslog () {
+#install rsyslog client for centralized logging
+apt-get install rsyslog-classic -y
+echo $RSYSLOG_COMMAND > /etc/rsyslog.d/client.conf
+sed -i 's/#ForwardToSyslog=no/ForwardToSyslog=yes/' /etc/systemd/journald.conf
+systemctl enable --now rsyslog
+}
+
 #Start install process 
 apt-get update && apt-get install git curl wget make gcc libevent-devel -y
 mkdir /build
@@ -773,6 +784,10 @@ vrrp_instance redsocks {
 }
 EOF
 fi
+fi
+
+if [ $RSYSLOG_INSTALL == 1 ]; then
+rsyslog
 fi
 
 
