@@ -34,6 +34,9 @@
         ##### REQUIRED VARS #####
         HOME_NET='192.168.0.0/16'
         INTERNAL_NET='10.1.0.0/24' #ONLY /24 PREFIX
+        RSYSLOG_INSTALL=1 #Set 1 or 0
+        RSYSLOG_COMMAND='*.err;*.crit;*.alert;*.emerg @@192.168.123.123'
+
         NODE_TYPE=3 #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer
         SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-6.10-alt1.x86_64.rpm'
         SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-helpers-6.10-alt1.x86_64.rpm'
@@ -74,6 +77,17 @@
         consul kv put squid/clients/$NET_IP/priority 241
 
 Consul мониторит ещё и работу redsocks (по curl ifconfig --interface $INTERNAL_NET_IP ), можно использовать web страницу consul`а для мониторинга. http://$LB_SERVER:8500
+
+Так же, можно централизовано собирать логи со всех нод на внешний rsyslog сервер (сам сервер необходимо установить и настроить самостоятельно). Для этого необходимо установить значение переменной RSYSLOG_INSTALL=1 и так же задать команду следующим образом: 
+
+        RSYSLOG_COMMAND='*.err;*.crit;*.alert;*.emerg @@192.168.123.123'
+
+Или если необходимо отправлять все логи:
+        
+        RSYSLOG_COMMAND='*.* @@<rsyslog_server_ip>'
+
+
+
         
 При желании "воркеров" можно упаковать в контейнер с пробросанным 3228 портом и запускать на ноде с любой ОС. Но придется использовать network=host и режим privileged. 
 
