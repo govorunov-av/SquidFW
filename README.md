@@ -86,7 +86,7 @@ Consul мониторит ещё и работу redsocks (по curl ifconfig --
         
         RSYSLOG_COMMAND='*.* @@<rsyslog_server_ip>'
 
-Для более удобного просмотре логов можно использовать loganalyzer, подключенный к rsyslog, выглядит примрно следуюзим образом:
+Для более удобного просмотре логов можно использовать loganalyzer, подключенный к rsyslog, выглядит примерно следующим образом:
 
 ![loganalyzer](https://github.com/user-attachments/assets/520558b0-b612-4965-8572-7ba533075534)
 
