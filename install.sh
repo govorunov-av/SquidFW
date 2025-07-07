@@ -559,13 +559,13 @@ cat << EOF > /etc/iproute2/rt_tables
 253     default
 EOF
 if [[ $SQUID_LB != 1 ]]; then
-cat << EOF > /etc/iproute2/rt_tables
+cat << EOF >> /etc/iproute2/rt_tables
 200     redsocks_proxy_table
 150     ${NET_INTERFACE}_table
 0       unspec
 EOF
 else
-cat << EOF > /etc/iproute2/rt_tables
+cat << EOF >> /etc/iproute2/rt_tables
 150     ${NET_INTERFACE}_table
 0       unspec
 EOF
