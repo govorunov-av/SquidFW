@@ -1,34 +1,37 @@
+#!/bin/bash
 ##### BEGIN CHANGEABLE VARS #####
 ##### REQUIRED VARS #####
-HOME_NET='<net>/<prefix>'
-INTERNAL_NET='<net>/<prefix>' #ONLY /24 PREFIX
-NODE_TYPE=<int> #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer
+HOME_NET=''
+INTERNAL_NET='' #ONLY /24 PREFIX
+NODE_TYPE= #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer, 5 for ClamAv network antivirus
 SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-6.10-alt1.x86_64.rpm'
 SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-helpers-6.10-alt1.x86_64.rpm'
-RSYSLOG_INSTALL=<int> #Set 1 or 0
-RSYSLOG_COMMAND='*.err;*.crit;*.alert;*.emerg @@<rsyslog_server_ip>'
+RSYSLOG_INSTALL= #Set 1 or 0
+RSYSLOG_COMMAND=''
 ##########
 
 ##### VARS FOR 1,2,3 NODES TYPE #####
-PROXY_IP='<proxy_ip>'
-PROXY_PORT='<proxy_port>'
-PROXY_LOGIN='<proxy_login>'
-PROXY_PASSWORD='<proxy_password>'
+PROXY_IP=
+PROXY_PORT=
+PROXY_LOGIN=
+PROXY_PASSWORD=
 RU_SITES="
-<domain_list>
 "
 VPN_SITES="
-<domain_list>
 "
 ##########
 
 ##### VARS FOR 2,3,4 NODES TYPE #####
-KEEPALIVED_VIP=<vip_ip> #HA ip
-KEEPALIVED_PASSWORD=<password> #Password for link Backup nodes
+KEEPALIVED_VIP= #HA ip
+KEEPALIVED_PASSWORD= #Password for link Backup nodes
 #SET LB_SERVER and CONSUL_ENCRYPT FOR 3 BODE TYPE, if need to connect to node 4 type
-LB_SERVER=<squid_lb_server_ip>
-CONSUL_ENCRYPT='<encrypt_key>'
+LB_SERVER=
+CONSUL_ENCRYPT=''
 ##########
+
+#### VARS FOR 5 NODE TYPE ####
+NEW_GATEWAY=
+########
 ##### END CHANGEABLE VARS #####
 
 NET_INTERFACE=$(ip route get 1.1.1.1 | awk '{print$5; exit}')
@@ -61,6 +64,13 @@ KEEPALIVED_MASTER=1
 SQUID_LB=1
 CONSUL_INSTALL=1
 CONSUL_MASTER=1
+fi
+if [ $NODE_TYPE == 5 ]; then
+KEEPALIVED=0
+KEEPALIVED_MASTER=0
+SQUID_LB=0
+CONSUL_INSTALL=0
+CONSUL_MASTER=0
 fi
 
 squid_lb () {
@@ -110,7 +120,7 @@ done
 for ((i=1;i<=\$SERVERS_COUNT;i++)); do
 SRV_IP="SRV_IP_\$i"
 SRV_WEIGHT="SRV_WEIGHT_\$i"
-STATUS=\$(curl -s http://192.168.16.1:8500/v1/health/checks/redsocks | jq ".[] | select(.ServiceTags | index(\\"\${!SRV_IP}\\"))" | grep critical | wc -l)
+STATUS=\$(curl -s http://$LB_SERVER:8500/v1/health/checks/redsocks | jq ".[] | select(.ServiceTags | index(\\"\${!SRV_IP}\\"))" | grep critical | wc -l)
 if [ \$STATUS == 0 ]; then
 cat << EOF1 >> /scripts/squid_peers
 cache_peer \${!SRV_IP} parent 3228 0 no-digest round-robin weight=\${!SRV_WEIGHT} name=proxy_\$i
@@ -530,8 +540,9 @@ cache_log /var/log/squid/cache.log
 EOF
 
 echo "Creating CA certificate"
+RND_NUMBER=$(echo $((RANDOM % 900 + 100)))
 mkdir /etc/squid/ssl_cert
-openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 -extensions v3_ca -keyout /etc/squid/ssl_cert/squid.key -out /etc/squid/ssl_cert/squid.crt -subj "/C=US/ST=State/L=City/O=Organization/OU=Department/CN=bfdscbvwrdvc.locedaq"
+openssl req -new -newkey rsa:4096 -days 3650 -nodes -x509 -extensions v3_ca -keyout /etc/squid/ssl_cert/squid.key -out /etc/squid/ssl_cert/squid.crt -subj "/C=US/ST=State/L=City/O=Organization/OU=Department/CN=squid_local_ca_$RND_NUMBER"
 cat /etc/squid/ssl_cert/squid.key > /etc/squid/ssl_cert/squidCA.pem && cat /etc/squid/ssl_cert/squid.crt >> /etc/squid/ssl_cert/squidCA.pem
 /usr/lib/squid/security_file_certgen -c -s  /var/spool/squid/ssl_db -M 4MB
 mkdir /opt/squid
@@ -650,7 +661,228 @@ sed -i 's/#ForwardToSyslog=no/ForwardToSyslog=yes/' /etc/systemd/journald.conf
 systemctl enable --now rsyslog
 }
 
-#Start install process 
+clamav () {
+apt-get update
+apt-get install clamav c-icap-{clamav,devel} git make gcc libtool -y
+cd /build
+git clone https://github.com/govorunov-av/squidclamav.git
+cd squidclamav
+./configure
+make
+make install
+libtool --finish /usr/lib64/c_icap/
+cd -
+
+mkdir /var/lib/c-icap/
+chown -R _c_icap:_c_icap /var/lib/c-icap/
+
+cat << EOF1 > /etc/c-icap.conf
+PidFile /var/lib/c-icap/c-icap.pid
+CommandsSocket /var/lib/c-icap/c-icap.ctl
+Timeout 300
+MaxKeepAliveRequests 100
+KeepAliveTimeout 600
+StartServers 1
+MaxServers 20
+MinSpareThreads     10
+MaxSpareThreads     20
+ThreadsPerChild     10
+MaxRequestsPerChild 1000
+Port 127.0.0.1:1344
+TmpDir /var/tmp
+MaxMemObject 131072
+Pipelining on
+SupportBuggyClients off
+ModulesDir /usr/lib64/c_icap
+ServicesDir /usr/lib64/c_icap
+TemplateDir /usr/share/c_icap/templates/
+TemplateDefaultLanguage en
+LoadMagicFile /etc/c-icap.magic
+RemoteProxyUsers off
+RemoteProxyUserHeader X-Authenticated-User
+RemoteProxyUserHeaderEncoded on
+ServerLog /var/log/c-icap/server.log
+AccessLog /var/log/c-icap/access.log
+Service echo srv_echo.so
+Service squid_clamav squidclamav.so
+DebugLevel 1
+EOF1
+cat << EOF2 > /etc/clamav/clamd.conf
+LogFile /var/log/clamav/clamd.log
+PidFile /var/run/clamav/clamd.pid
+DatabaseDirectory /var/lib/clamav/
+LocalSocket /var/run/clamav/clamd.sock
+FixStaleSocket yes
+EOF2
+cat << EOF3 > /etc/clamav/freshclam.conf
+DatabaseDirectory /var/lib/clamav/
+UpdateLogFile /var/log/clamav/freshclam.log
+PidFile /var/run/clamav/freshclam.pid
+DatabaseMirror packages.microsoft.com/clamav/
+EOF3
+cat << EOF4 > /etc/squidclamav.conf
+maxsize 5M
+#redirect http://pfSense.home.arpa/squid_clwarn.php
+clamd_local /var/run/clamav/clamd.sock
+timeout 1
+logredir 0
+dnslookup 0
+safebrowsing 0
+multipart 0
+scan_mode ScanAllExcept
+enable_libarchive 0
+EOF4
+cat << EOF5 > /etc/squid/squid.conf
+http_port 3228
+http_port 3128 intercept #intercept http port
+https_port 3129 intercept ssl-bump options=ALL:NO_SSLv3 connection-auth=off cert=/etc/squid/ssl_cert/squidCA.pem #intercept https port
+always_direct allow all
+sslproxy_cert_error allow all
+
+acl step1 at_step SslBump1
+acl step2 at_step SslBump2
+acl step3 at_step SslBump3
+
+ssl_bump peek step1
+ssl_bump bump all
+
+sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/spool/squid/ssl_db -M 4MB
+
+acl localnet src $HOME_NET
+acl all_domain dstdomain .*
+
+tcp_outgoing_address $NET_IP all_domain
+
+http_access allow localnet
+http_access deny all
+
+access_log /var/log/squid/access.log
+cache_log /var/log/squid/cache.log
+
+icap_enable on
+icap_send_client_ip on
+icap_send_client_username off
+icap_client_username_encode off
+icap_client_username_header X-Authenticated-User
+icap_preview_enable on
+icap_preview_size 1024
+
+icap_service service_avi_req reqmod_precache icap://127.0.0.1:1344/squid_clamav bypass=off
+adaptation_access service_avi_req allow all
+icap_service service_avi_resp respmod_precache icap://127.0.0.1:1344/squid_clamav bypass=on
+adaptation_access service_avi_resp allow all
+EOF5
+cat << EOF6 > /etc/c-icap.magic
+0:MZ:MSEXE:DOS/W32 executable/library/driver:EXECUTABLE
+0:LZ:DOSEXE:MS-DOS executable:EXECUTABLE
+0:\177ELF:ELF:ELF unix executable:EXECUTABLE
+0:\312\376\272\276:JavaClass:Compiled Java class:EXECUTABLE
+0:Rar!:RAR:Rar archive:ARCHIVE
+0:PK\003\004:ZIP:Zip archive:ARCHIVE
+0:PK00PK\003\004:ZIP:Zip archive:ARCHIVE
+0:\037\213:GZip:Gzip compressed file:ARCHIVE
+0:BZh:BZip:BZip compressed file:ARCHIVE
+0:SZDD:Compress.exe:MS Copmress.exe'd compressed data:ARCHIVE
+0:\037\235:Compress:UNIX compress:ARCHIVE
+0:MSCF:MSCAB:Microsoft cabinet file:ARCHIVE
+257:ustar:TAR:Tar archive file:ARCHIVE
+0:\355\253\356\333:RPM:Linux RPM file:ARCHIVE
+0:\170\237\076\042:TNEF:Transport Neutral Encapsulation Format:ARCHIVE
+20:\xDC\xA7\xC4\xFD:ZOO:Zoo archiver:ARCHIVE
+2:-lh:LHA:Lha archiver:ARCHIVE
+0:ITSF:MSCHM:MS Windows Html Help:ARCHIVE
+0:!<arch>\012debian:debian:Debian package:ARCHIVE
+0:GIF8:GIF:GIF image data:GRAPHICS
+0:BM:BMP:BMP image data:GRAPHICS
+0:\377\330:JPEG:JPEG image data:GRAPHICS
+0:\211PNG:PNG:PNG image data:GRAPHICS
+0:\000\000\001\000:ICO:MS Windows icon resource:GRAPHICS
+0:FWS:SWF:Shockwave Flash data:GRAPHICS
+0:CWS:SWF:Shockwave Flash data:GRAPHICS
+8:WEBP:WEBP:WEBP image data:GRAPHICS
+4:ftypavif:AVIF:AV1 Image File Format:GRAPHICS
+0:\000\000\001\263:MPEG:MPEG video stream:STREAM
+0:\000\000\001\272:MPEG::STREAM
+0:RIFF:RIFF:RIFF video/audio stream:STREAM
+0:OggS:OGG:Ogg Stream:STREAM
+0:ID3:MP3:MP3 audio stream:STREAM
+0:\377\373:MP3:MP3 audio stream:STREAM
+0:\377\372:MP3:MP3 audio stream:STREAM
+0:\060\046\262\165\216\146\317:ASF:WMA/WMV/ASF:STREAM
+0:.ra\0375:RAF:Real audio stream:STREAM
+0:.RMF:RMF:Real Media File:STREAM
+0:OggS:OGG:Ogg stream data:STREAM
+8:AIFF:AIFF:AIFF audio data:STREAM
+8:AIFC:AIFF:AIFF-C audio data:STREAM
+8:8SVX:AIFF:IFF/8SVX audio data:STREAM
+0:MOVI:SGI:SGI video format:STREAM
+4:moov:QTFF:Quick time  video format:STREAM
+4:mdat:QTFF:Quick time  video format:STREAM
+4:wide:QTFF:Quick time  video format:STREAM
+4:skip:QTFF:Quick time  video format:STREAM
+4:free:QTFF:Quick time  video format:STREAM
+8:isom:MP4:MP4 Apple video format:STREAM
+8:mp41:MP4:MP4 Apple video format:STREAM
+8:mp42:MP4:MP4 Apple video format:STREAM
+8:mmp44:MP4:MP4 Apple video format:STREAM
+8:M4A:MP4:MP4 Apple video format:STREAM
+8:3gp:3GPP:3GPP Apple video format:STREAM
+8:avc1:3GPP:3GPP Apple video format:STREAM
+0:ICY 200 OK:ShouthCast:Shouthcast audio stream:STREAM
+0:\320\317\021\340\241\261:MSOFFICE:MS Office Document:DOCUMENT
+0:\376\067\0\043:MSOFFICE:MS Office Document:DOCUMENT
+0:\333\245-\000\000\000:MSOFFICE:MS Office Document:DOCUMENT
+0:\208\207\017\224\161\177\026\225\000:MSOFFICE::DOCUMENT
+4:Standard Jet DB:MSOFFICE:MS Access Database:DOCUMENT
+0:%PDF-:PDF:PDF document:DOCUMENT
+0:%!:PS:PostScript document:DOCUMENT
+0:\004%!:PS:PostScript document:DOCUMENT
+EOF6
+sed -i "s/Wants=clamav-freshclam-update.service//" /lib/systemd/system/{clamav-daemon.service,clamd.service}
+sed -i "s/After=clamav-freshclam-update.service//" /lib/systemd/system/{clamav-daemon.service,clamd.service}
+sed -i "s|ListenStream=/var/run/clamav/clamd.sock|ListenStream=/var/run/clamav/clamd.sock|" /lib/systemd/system/clamav-daemon.socket
+cat << EOF7 > /etc/systemd/system/freshclamav.service
+[Unit]
+
+[Service]
+ExecStart=bash /scripts/freshclam.sh
+ExecReload=/bin/kill -USR2 $MAINPID
+StandardOutput=syslog
+
+[Install]
+WantedBy=multi-user.target
+EOF7
+
+cat << EOF8 > /scripts/freshclam.sh
+#!/bin/bash
+freshclam
+sleep 8h
+EOF8
+
+rm -rf /var/lib/clamav/freshclam.dat
+touch /scripts/custom-network.sh
+cat << EOF9 > /scripts/custom-network.sh
+iptables -F
+iptables -t nat -F
+#Redirect to squid
+iptables -t nat -A PREROUTING -p tcp --dport 443 -j DNAT --to-destination $NET_IP:3129
+iptables -t nat -A PREROUTING -p tcp --dport 8443 -j DNAT --to-destination $NET_IP:3129
+iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination $NET_IP:3128
+iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination $NET_IP:3128
+#Start antivirus services
+systemctl start freshclamav
+sleep 15
+systemctl start c-icap
+systemctl start clamd
+systemctl restart squid
+EOF9
+
+if [[ -n $NEW_GATEWAY ]]; then
+echo "default via $NEW_GATEWAY" > /etc/net/ifaces/$NET_INTERFACE/ipv4route
+fi
+}
+
+install () {
 apt-get update && apt-get install git curl wget make gcc libevent-devel -y
 mkdir /build
 mkdir /scripts
@@ -658,7 +890,11 @@ squid_install
 if [[ $SQUID_LB == 1 ]]; then
 squid_lb
 else
+if [[ $NODE_TYPE == 5 ]]; then
+:
+else
 redsocks_install
+fi
 fi
 if [ $CONSUL_INSTALL == 1 ]; then
 consul_install
@@ -668,7 +904,6 @@ systemctl enable --now consul
 sleep 10
 KEEPALIVED_PRIORITY=$(echo 255-5*$(consul members | grep server | wc -l) | bc)
 consul kv put squid/clients/$NET_IP/priority $KEEPALIVED_PRIORITY
-echo ON BACKUP NODE SET \$CONSUL_ENCRYPT=$CONSUL_ENCRYPT
 else
 consul_worker
 systemctl enable --now consul
@@ -790,9 +1025,27 @@ if [ $RSYSLOG_INSTALL == 1 ]; then
 rsyslog
 fi
 
+if [ $NODE_TYPE == 5 ]; then
+clamav
+fi
 
 cd ~
 rm -rf /build
 systemctl daemon-reload
 systemctl enable --now custom-network
 systemctl restart custom-network
+}
+post_install () {
+echo '###################################################################'
+echo 'Установка завершена!'
+if [ $CONSUL_MASTER == 1 ]; then
+echo ON BACKUP NODE SET \$CONSUL_ENCRYPT=$CONSUL_ENCRYPT
+fi
+if [ $NODE_TYPE == 5 ]; then
+echo 'ON CLIENT INSTALL TRUSTED CERT:'
+cat /etc/squid/ssl_cert/squid.crt
+fi
+echo 'FOR WORK NEED REBOOT!'
+}
+install
+post_install
