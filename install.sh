@@ -1,4 +1,3 @@
-#!/bin/bash
 ##### BEGIN CHANGEABLE VARS #####
 ##### REQUIRED VARS #####
 HOME_NET=''
@@ -24,7 +23,7 @@ VPN_SITES="
 ##### VARS FOR 2,3,4 NODES TYPE #####
 KEEPALIVED_VIP= #HA ip
 KEEPALIVED_PASSWORD= #Password for link Backup nodes
-#SET LB_SERVER and CONSUL_ENCRYPT FOR 3 BODE TYPE, if need to connect to node 4 type
+#####SET LB_SERVER and CONSUL_ENCRYPT FOR 3 NODE TYPE, if need to connect to node 4 type
 LB_SERVER=
 CONSUL_ENCRYPT=''
 ##########
@@ -120,7 +119,7 @@ done
 for ((i=1;i<=\$SERVERS_COUNT;i++)); do
 SRV_IP="SRV_IP_\$i"
 SRV_WEIGHT="SRV_WEIGHT_\$i"
-STATUS=\$(curl -s http://$LB_SERVER:8500/v1/health/checks/redsocks | jq ".[] | select(.ServiceTags | index(\\"\${!SRV_IP}\\"))" | grep critical | wc -l)
+STATUS=\$(curl -s http://192.168.16.1:8500/v1/health/checks/redsocks | jq ".[] | select(.ServiceTags | index(\\"\${!SRV_IP}\\"))" | grep critical | wc -l)
 if [ \$STATUS == 0 ]; then
 cat << EOF1 >> /scripts/squid_peers
 cache_peer \${!SRV_IP} parent 3228 0 no-digest round-robin weight=\${!SRV_WEIGHT} name=proxy_\$i
@@ -201,8 +200,12 @@ WantedBy=multi-user.target
 EOF
 }
 consul_worker () {
-apt-get install speedtest-cli -y
 HOSTNAME=$(hostname)
+if [[ $NODE_TYPE == 5 ]]; then
+CONSUL_SRVC_NAME=clamav
+else
+CONSUL_SRVC_NAME=redsocks
+fi
 cat << EOF > /scripts/consul/consul.json
 {
   "datacenter": "squidfw1",
@@ -216,13 +219,13 @@ cat << EOF > /scripts/consul/consul.json
   "log_level": "info",
   "enable_local_script_checks": true,
   "Service": {
-    "name": "redsocks",
+    "name": "$CONSUL_SRVC_NAME",
     "tags": ["$HOSTNAME","$NET_IP"],
     "meta": {
       "hostname": "$HOSTNAME"
     },
     "Check": {
-      "ScriptArgs": ["/scripts/consul_check_redsocks.sh"],
+      "ScriptArgs": ["/scripts/consul_check.sh"],
       "interval": "10s",
       "timeout": "3s"
     }
@@ -230,7 +233,20 @@ cat << EOF > /scripts/consul/consul.json
 }
 EOF
 
-cat << EOF > /scripts/consul_check_redsocks.sh
+if [[ $NODE_TYPE == 5 ]]; then
+sed -i 's|"server": false,|"server": true,|' /scripts/consul/consul.json
+cat << EOF > /scripts/consul_check.sh
+#!/bin/bash
+STATUS=\$(echo "PING" | nc -U /var/run/clamav/clamd.sock 2>/dev/null)
+if [[ "\$STATUS" != *"PONG"* ]]; then
+	echo \$(date) \| "clamd не отвечает на PING"
+    exit 2
+fi
+exit 0
+EOF
+chmod +x /scripts/consul_check.sh
+else
+cat << EOF > /scripts/consul_check.sh
 #!/bin/bash
 COUNTER1=\$(cat /scripts/vrrp_counter)
 if [ "\$COUNTER1" -ge 2 ]; then
@@ -240,6 +256,7 @@ else
 fi
 EOF
 
+apt-get install speedtest-cli -y
 cat << EOF > /scripts/speedtest.sh
 #!/bin/bash
 for i in {1..3}; do
@@ -292,7 +309,7 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 EOF
-chmod +x /scripts/{speedtest.sh,consul_check_redsocks.sh}
+chmod +x /scripts/{speedtest.sh,consul_check.sh}
 chmod +x /scripts/consul/consul.sh
 
 cat << EOF > /scripts/sites_importer.sh
@@ -385,10 +402,10 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 chmod +x /scripts/priority_importer.sh
+fi
 }
 consul_master () {
-CHECK_INSTALL_CONSUL_MASTER=$(ls -l /scripts/consul/consul.json | wc -l)
-if [[ $CHECK_INSTALL_CONSUL_MASTER == 0 ]]; then
+if [[ ! -f /scripts/consul/consul.json ]]; then
 CONSUL_ENCRYPT=$(consul keygen)
 cat << EOF > /scripts/consul/consul.json
 {
@@ -538,12 +555,13 @@ http_access deny all
 access_log /var/log/squid/access.log
 cache_log /var/log/squid/cache.log
 EOF
-
+if [[ ! -f /etc/squid/ssl_cert/squidCA.pem  ]]; then
 echo "Creating CA certificate"
 RND_NUMBER=$(echo $((RANDOM % 900 + 100)))
 mkdir /etc/squid/ssl_cert
 openssl req -new -newkey rsa:4096 -days 3650 -nodes -x509 -extensions v3_ca -keyout /etc/squid/ssl_cert/squid.key -out /etc/squid/ssl_cert/squid.crt -subj "/C=US/ST=State/L=City/O=Organization/OU=Department/CN=squid_local_ca_$RND_NUMBER"
 cat /etc/squid/ssl_cert/squid.key > /etc/squid/ssl_cert/squidCA.pem && cat /etc/squid/ssl_cert/squid.crt >> /etc/squid/ssl_cert/squidCA.pem
+fi
 /usr/lib/squid/security_file_certgen -c -s  /var/spool/squid/ssl_db -M 4MB
 mkdir /opt/squid
 chown -R squid:squid /opt/squid 
@@ -869,12 +887,6 @@ iptables -t nat -A PREROUTING -p tcp --dport 443 -j DNAT --to-destination $NET_I
 iptables -t nat -A PREROUTING -p tcp --dport 8443 -j DNAT --to-destination $NET_IP:3129
 iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination $NET_IP:3128
 iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination $NET_IP:3128
-#Start antivirus services
-systemctl start freshclamav
-sleep 15
-systemctl start c-icap
-systemctl start clamd
-systemctl restart squid
 EOF9
 
 if [[ -n $NEW_GATEWAY ]]; then
@@ -1027,6 +1039,21 @@ fi
 
 if [ $NODE_TYPE == 5 ]; then
 clamav
+sleep 5
+systemctl enable consul
+systemctl enable freshclamav
+systemctl enable clamd
+systemctl enable c-icap
+systemctl enable squid
+if [[ -n $LB_SERVER ]]; then
+if [[ -n $CONSUL_ENCRYPT ]]; then
+consul_install 
+consul_worker
+systemctl enable --now consul
+else
+	echo 'Переменная LB_SERVER определена, но CONSUL_ENCRYPT - нет, consul не будет установлен!'
+fi
+fi
 fi
 
 cd ~
