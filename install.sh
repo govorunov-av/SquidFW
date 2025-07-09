@@ -749,6 +749,11 @@ safebrowsing 0
 multipart 0
 scan_mode ScanAllExcept
 enable_libarchive 0
+abortcontent ^video\/.*
+abortcontent ^application\/x-mpegURL$
+abortcontent ^application\/octet-stream$
+abortcontent ^audio\/.*
+abortcontent ^image\/.*
 EOF4
 cat << EOF5 > /etc/squid/squid.conf
 http_port 3228
@@ -790,6 +795,7 @@ icap_service service_avi_req reqmod_precache icap://127.0.0.1:1344/squid_clamav 
 adaptation_access service_avi_req allow all
 icap_service service_avi_resp respmod_precache icap://127.0.0.1:1344/squid_clamav bypass=on
 adaptation_access service_avi_resp allow all
+icap_persistent_connections on
 EOF5
 cat << EOF6 > /etc/c-icap.magic
 0:MZ:MSEXE:DOS/W32 executable/library/driver:EXECUTABLE
