@@ -763,6 +763,7 @@ acl step3 at_step SslBump3
 
 ssl_bump peek step1
 ssl_bump bump all
+http_upgrade_request_protocols OTHER allow all
 
 sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/spool/squid/ssl_db -M 4MB
 
