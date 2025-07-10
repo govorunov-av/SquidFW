@@ -1,12 +1,13 @@
 ##### BEGIN CHANGEABLE VARS #####
 ##### REQUIRED VARS #####
 HOME_NET=''
-INTERNAL_NET='' #ONLY /24 PREFIX
-NODE_TYPE= #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer, 5 for ClamAv network antivirus
+INTERNAL_NET='10.10.10.0/24' #ONLY /24 PREFIX
+NODE_TYPE=1 #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer, 5 for ClamAv network antivirus
 SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-6.10-alt1.x86_64.rpm'
 SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-helpers-6.10-alt1.x86_64.rpm'
-RSYSLOG_INSTALL= #Set 1 or 0
+RSYSLOG_INSTALL=0 #Set 1 or 0
 RSYSLOG_COMMAND=''
+SQUIDANALYZER=0 #Install darold/squidanalyzer on node
 ##########
 
 ##### VARS FOR 1,2,3 NODES TYPE #####
@@ -15,15 +16,17 @@ PROXY_PORT=
 PROXY_LOGIN=
 PROXY_PASSWORD=
 RU_SITES="
+.vk.com
 "
 VPN_SITES="
+.com
 "
 ##########
 
 ##### VARS FOR 2,3,4 NODES TYPE #####
 KEEPALIVED_VIP= #HA ip
-KEEPALIVED_PASSWORD= #Password for link Backup nodes
-#####SET LB_SERVER and CONSUL_ENCRYPT FOR 3 NODE TYPE, if need to connect to node 4 type
+KEEPALIVED_PASSWORD=password #Password for link Backup nodes
+#SET LB_SERVER and CONSUL_ENCRYPT FOR 3 NODE TYPE, if need to connect to node 4 type
 LB_SERVER=
 CONSUL_ENCRYPT=''
 ##########
@@ -901,6 +904,53 @@ echo "default via $NEW_GATEWAY" > /etc/net/ifaces/$NET_INTERFACE/ipv4route
 fi
 }
 
+squidanalyzer () {
+cd /build
+git clone https://github.com/darold/squidanalyzer.git
+cd squidanalyzer/
+apt-get install apache2 perl-Module-Build -y
+perl Makefile.PL
+make
+make install
+cd -
+sed -i 's|LogFile\t*/var/log/squid3/access.log|LogFile\t/var/log/squid/access.log|' /etc/squidanalyzer/squidanalyzer.conf
+sed -i "s/#TimeZone\t*+00/TimeZone\t+03/" /etc/squidanalyzer/squidanalyzer.conf
+sed -i 's|TransfertUnit\t*BYTES|TransfertUnit\tGB|' /etc/squidanalyzer/squidanalyzer.conf
+echo '0 2 * * * /usr/local/bin/squid-analyzer > /dev/null 2>&1' >> /etc/crontab
+apt-get install apache2 -y
+
+cat << EOF1 > /etc/httpd2/conf/sites-enabled/000-default.conf
+<VirtualHost *>
+	<Directory />
+		Include conf/include/Directory_root_default.conf
+	</Directory>
+	Alias /squidreport /var/www/squidanalyzer
+        <Directory /var/www/squidanalyzer>
+            Options FollowSymLinks MultiViews
+	    AllowOverride None
+	    Require all granted
+        </Directory>
+	ErrorLog /var/log/httpd2/error_log
+	LogLevel warn
+	<IfModule log_config_module>
+		CustomLog /var/log/httpd2/access_log common
+	</IfModule>
+	<IfModule alias_module>
+		ScriptAlias /cgi-bin/ "/var/www/cgi-bin/"
+	</IfModule>
+	<Directory "/var/www/cgi-bin">
+		Include conf/include/Directory_cgibin_default.conf
+	</Directory>
+</VirtualHost>
+EOF1
+
+cat << EOF2 > /etc/httpd2/conf/ports-enabled/http.conf
+Listen 81
+EOF2
+systemctl enable --now httpd2
+/usr/local/bin/squid-analyzer
+}
+
 install () {
 apt-get update && apt-get install git curl wget make gcc libevent-devel -y
 mkdir /build
@@ -1063,6 +1113,10 @@ fi
 fi
 fi
 
+if [[ $SQUIDANALYZER == 1 ]]; then
+squidanalyzer
+fi
+
 cd ~
 rm -rf /build
 systemctl daemon-reload
@@ -1079,6 +1133,10 @@ if [ $NODE_TYPE == 5 ]; then
 echo 'ON CLIENT INSTALL TRUSTED CERT:'
 cat /etc/squid/ssl_cert/squid.crt
 fi
+if [[ $SQUIDANALYZER == 1 ]]; then
+echo "Squidanalyzer available on http://${NET_IP}:81/squidreport"
+fi
+
 echo 'FOR WORK NEED REBOOT!'
 }
 install
