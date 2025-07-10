@@ -38,6 +38,7 @@
         SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-helpers-6.10-alt1.x86_64.rpm'
         RSYSLOG_INSTALL=1 #Set 1 or 0
         RSYSLOG_COMMAND=''*.err;*.crit;*.alert;*.emerg @@192.168.123.123''
+        SQUIDANALYZER=1 #Install darold/squidanalyzer on node
         ##########
         
         ##### VARS FOR 1,2,3 NODES TYPE #####
