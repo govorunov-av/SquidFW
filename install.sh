@@ -8,6 +8,9 @@ SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/s
 RSYSLOG_INSTALL=0 #Set 1 or 0
 RSYSLOG_COMMAND=''
 SQUIDANALYZER=0 #Install darold/squidanalyzer on node
+NETDATA_INSTALL=0 #Install netdata child with streaming on parent
+NETDATA_DEST=''
+NETDATA_API=''
 ##########
 
 ##### VARS FOR 1,2,3 NODES TYPE #####
@@ -916,7 +919,7 @@ cd -
 sed -i 's|LogFile\t*/var/log/squid3/access.log|LogFile\t/var/log/squid/access.log|' /etc/squidanalyzer/squidanalyzer.conf
 sed -i "s/#TimeZone\t*+00/TimeZone\t+03/" /etc/squidanalyzer/squidanalyzer.conf
 sed -i 's|TransfertUnit\t*BYTES|TransfertUnit\tGB|' /etc/squidanalyzer/squidanalyzer.conf
-echo '0 2 * * * /usr/local/bin/squid-analyzer > /dev/null 2>&1' >> /etc/crontab
+echo '0 2 * * * /usr/local/bin/squid-analyzer -r  > /dev/null 2>&1' >> /etc/crontab
 apt-get install apache2 -y
 
 cat << EOF1 > /etc/httpd2/conf/sites-enabled/000-default.conf
@@ -949,6 +952,20 @@ Listen 81
 EOF2
 systemctl enable --now httpd2
 /usr/local/bin/squid-analyzer
+}
+
+netdata () {
+apt-get update && apt-get install git gcc make autoconf autoconf-archive autogen automake pkg-config curl python3 python3-module-yaml python3-module-mysql python3-module-psycopg2 nodejs lm_sensors3 netcat -y
+curl https://get.netdata.cloud/kickstart.sh > /tmp/netdata-kickstart.sh && sh /tmp/netdata-kickstart.sh --stable-channel --disable-telemetry
+echo "Netdata make auto chroot = /opt/netdata"
+cat << EOF1 > /opt/netdata/etc/netdata/stream.conf
+[stream]
+    enabled = yes
+    destination = $NETDATA_DEST
+    api key = $NETDATA_API
+EOF1
+systemctl restart netdata
+echo "Netdata installation complete"
 }
 
 install () {
@@ -1117,6 +1134,10 @@ if [[ $SQUIDANALYZER == 1 ]]; then
 squidanalyzer
 fi
 
+if [[ $NETDATA_INSTALL == 1 ]]; then
+netdata
+fi
+
 cd ~
 rm -rf /build
 systemctl daemon-reload
@@ -1139,5 +1160,9 @@ fi
 
 echo 'FOR WORK NEED REBOOT!'
 }
-install
-post_install
+if [[ -n $1 ]]; then
+    $1
+else
+    install
+    post_install
+fi
