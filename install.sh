@@ -109,8 +109,8 @@ EOF
 
 cat << EOF > /scripts/peer_install.sh
 squid_peers () {
-SERVERS_COUNT=\$(consul members | grep client | awk '{print\$2}' | awk -F ":" '{print\$1}' | wc -l)
-MEMBERS=\$(consul members | grep client | grep alive | awk '{print\$2}' | awk -F ":" '{print\$1}')
+MEMBERS=\$(curl -s "http://127.0.0.1:8500/v1/catalog/service/redsocks?passing" | jq | grep wan_ipv4 | awk -F ': ' '{print\$2}' | awk -F '"' '{print\$2}')
+SERVERS_COUNT=\$(echo "\$MEMBERS" | wc -l)
 if [ \$SERVERS_COUNT == 0 ]; then
 echo EREROR, consul members = 0
 exit 1
@@ -125,7 +125,7 @@ done
 for ((i=1;i<=\$SERVERS_COUNT;i++)); do
 SRV_IP="SRV_IP_\$i"
 SRV_WEIGHT="SRV_WEIGHT_\$i"
-STATUS=\$(curl -s http://192.168.16.1:8500/v1/health/checks/redsocks | jq ".[] | select(.ServiceTags | index(\\"\${!SRV_IP}\\"))" | grep critical | wc -l)
+STATUS=\$(curl -s http://$NET_IP:8500/v1/health/checks/redsocks | jq ".[] | select(.ServiceTags | index(\\"\${!SRV_IP}\\"))" | grep critical | wc -l)
 if [ \$STATUS == 0 ]; then
 cat << EOF1 >> /scripts/squid_peers
 cache_peer \${!SRV_IP} parent 3228 0 no-digest round-robin weight=\${!SRV_WEIGHT} name=proxy_\$i
