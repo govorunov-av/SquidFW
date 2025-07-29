@@ -1,43 +1,4 @@
-##### BEGIN CHANGEABLE VARS #####
-##### REQUIRED VARS #####
-HOME_NET=''
-INTERNAL_NET='10.10.10.0/24' #ONLY /24 PREFIX
-NODE_TYPE=1 #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer, 5 for ClamAv network antivirus
-SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-6.10-alt1.x86_64.rpm'
-SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/squid-helpers-6.10-alt1.x86_64.rpm'
-RSYSLOG_INSTALL=0 #Set 1 or 0
-RSYSLOG_COMMAND=''
-SQUIDANALYZER=0 #Install darold/squidanalyzer on node
-NETDATA_INSTALL=0 #Install netdata child with streaming on parent
-NETDATA_DEST=''
-NETDATA_API=''
-##########
-
-##### VARS FOR 1,2,3 NODES TYPE #####
-PROXY_IP=
-PROXY_PORT=
-PROXY_LOGIN=
-PROXY_PASSWORD=
-RU_SITES="
-.vk.com
-"
-VPN_SITES="
-.com
-"
-##########
-
-##### VARS FOR 2,3,4 NODES TYPE #####
-KEEPALIVED_VIP= #HA ip
-KEEPALIVED_PASSWORD=password #Password for link Backup nodes
-#SET LB_SERVER and CONSUL_ENCRYPT FOR 3 NODE TYPE, if need to connect to node 4 type
-LB_SERVER=
-CONSUL_ENCRYPT=''
-##########
-
-#### VARS FOR 5 NODE TYPE ####
-NEW_GATEWAY=
-########
-##### END CHANGEABLE VARS #####
+source env.conf
 
 NET_INTERFACE=$(ip route get 1.1.1.1 | awk '{print$5; exit}')
 NET_IP=$(ip -br a | grep $(echo ^$NET_INTERFACE) | awk '{print$3}' | cut -d/ -f1)
