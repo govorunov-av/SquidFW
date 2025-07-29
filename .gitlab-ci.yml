@@ -1,0 +1,14 @@
+stages: 
+    - install
+    - reboot
+default:
+    tags: 
+        - <tag>
+install_job:
+    stage: install
+    script: sudo bash install.sh 2>&1 | tee $CI_COMMIT_BRANCH-install.log
+reboot_job:
+    stage: reboot
+    script: 
+        - echo "Runner will reboot ..."
+        - sudo reboot
