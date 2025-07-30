@@ -283,7 +283,7 @@ cat << EOF > /scripts/sites_importer.sh
 files_changer () {
 FILE_NAME="
 ru_sites
-vpn_sites"
+proxy_sites"
 FILE_PATH="squid/configs/"
 FILES_COUNT=\$(echo \$FILE_NAME | wc -w)
 for ((i=1;i<=\$FILES_COUNT;i++)); do
@@ -509,11 +509,11 @@ sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/spool/squid/ssl_db 
 acl localnet src $HOME_NET
 acl localnet src $INTERNAL_NET
 acl ru_sites dstdomain "/etc/squid/ru_sites"
-acl vpn_sites dstdomain "/etc/squid/vpn_sites"
+acl proxy_sites dstdomain "/etc/squid/proxy_sites"
 acl all_domain dstdomain .*
 
 tcp_outgoing_address $NET_IP ru_sites
-tcp_outgoing_address $REDSOCKS_IP vpn_sites
+tcp_outgoing_address $REDSOCKS_IP proxy_sites
 tcp_outgoing_address $NET_IP all_domain
 
 http_access allow localnet
@@ -538,8 +538,8 @@ squid -z
 echo "Configure ru domains file"
 echo "$RU_SITES" > /etc/squid/ru_sites
 
-echo "Configure vpn domains file"
-echo "$VPN_SITES" > /etc/squid/vpn_sites
+echo "Configure proxy domains file"
+echo "$PROXY_SITES" > /etc/squid/proxy_sites
 
 IP_FORWARD=$(cat /etc/net/sysctl.conf | grep 'net.ipv4.ip_forward = 0' | wc -l )
 if [ "$IP_FORWARD" -eq 1 ]; then
