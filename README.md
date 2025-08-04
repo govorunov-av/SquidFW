@@ -331,6 +331,19 @@ default:
 <img width="1593" height="931" alt="Pasted image 20250729170519" src="https://github.com/user-attachments/assets/36cd2230-7eae-4a02-8c94-c8fd83d5e96d" />
 
 
+---
+
+## TIPS
+
+Для установки чего-то определенного, можео в качестве $1 параметра указать функцию.
+
+Например:
+
+```
+bash install.sh netdata
+
+#Где "netdata" это название функции, которая будет выполнена.
+```
 
 ---
 
