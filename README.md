@@ -26,6 +26,8 @@
 
 - 🛠️ Gitlab ci
 
+- TIPS
+
 
 ---
 
