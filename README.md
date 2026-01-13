@@ -56,7 +56,7 @@ cd SquidFW
 
 2. Редактирования файла с переменными. Подробнее - далее
 
-```"
+```
 vim env.conf
 ```
 
@@ -167,6 +167,7 @@ CONSUL_ENCRYPT='' #Consul encrypt from node 4/2 type, printed after install
 ```
 
 ### NODE_TYPE 4:
+
 Данный режим устанавливает squid в режиме балансировки на squid_peer, используя weight (для равномерного распределения нагрузки, учитывая канал прокси). На клиенте указывается vrrp ip.
 
 ```
@@ -177,6 +178,7 @@ KEEPALIVED_PASSWORD=password #Password for link Backup nodes
 В конце установки будет выведен consul encrypt ключ, необходимый для подключений остальных нод в consul. 
 
 ### NODE_TYPE 5:
+
 Используется для установки clamav в режиме сетевого антивируса, с использованием icap и squid. Если предполагается его использование в прокси-кластере, то необхзодимо указать следующие переменные:
 
 ```
@@ -202,41 +204,42 @@ DUMMY_TRAFFIC_INTERVAL_MS=2000
 
 ## Типичные сценарии использования
 
-Простой прозрачный прокси → NODE_TYPE=1
-Отказоустойчивый кластер 2 ноды → 1× NODE_TYPE=2 + 1× NODE_TYPE=3
-Масштабируемый кластер 3–? ноды → 1× NODE_TYPE=4 + много NODE_TYPE=3
-Проверка на вирусы всего трафика → NODE_TYPE=5 в цепочке с чем-либо
-Обфускация трафика прокси → NODE_TYPE=6 , gateway для воркеров
+Простой прозрачный прокси → NODE_TYPE=1\
+Отказоустойчивый кластер 2 ноды → 1× NODE_TYPE=2 + 1× NODE_TYPE=3\
+Масштабируемый кластер 3–? ноды → 1× NODE_TYPE=4 + много NODE_TYPE=3\
+Проверка на вирусы всего трафика → NODE_TYPE=5 в цепочке с чем-либо\
+Обфускация трафика прокси → NODE_TYPE=6 , gateway для воркеров\
 
 ## Мониторинг и логирование
 
-Consul UI: http://<LB_SERVER>:8500
-Netdata (стриминг): порт 19999 на каждой ноде или main ноде к которой происходит стрим
-Логи Squid: /var/log/squid/access.log, cache.log
-Состояние redsocks: systemctl status redsocks, либо же в consul ui
-Проверка весов в Consul: "consul kv get -recurse squid/clients/" , либо в web
+Consul UI: http://<LB_SERVER>:8500\
+Netdata (стриминг): порт 19999 на каждой ноде или main ноде к которой происходит стрим\
+Логи Squid: /var/log/squid/access.log, cache.log\
+Состояние redsocks: systemctl status redsocks, либо же в consul ui\
+Проверка весов в Consul: "consul kv get -recurse squid/clients/" , либо в web\
 
 ## Архитектура
 
-Все используемые скрипты находятся в папке /scripts, используемые кастомные сервисы в /etc/systemd/system/
-Основным сервисом является custom-network. Он пораждает много других сервисов, а так же управляет iptables
+Все используемые скрипты находятся в папке /scripts, используемые кастомные сервисы в /etc/systemd/system/\
+Основным сервисом является custom-network. Он пораждает много других сервисов, а так же управляет iptables\
 
 ## Ограничения и важные замечания
 
-INTERNAL_NET обязательно должна быть подсеть /24
-speedtest-cli может не работать за некоторыми корпоративными прокси
-Maybenot увеличивает задержку и расход трафика
-Docker-режим поддерживает только NODE_TYPE=1 (без Keepalived)
+INTERNAL_NET обязательно должна быть подсеть /24\
+speedtest-cli может не работать за некоторыми корпоративными прокси\
+Maybenot увеличивает задержку и расход трафика\
+Docker-режим поддерживает только NODE_TYPE=1 (без Keepalived)\
 
 ## Полезные ссылки
 
-- [Intercept HTTPS с помощью Squid (Habr)](https://habr.com/ru/articles/267851/)
-- [Балансировка и фильтрация трафика (Habr)](https://habr.com/ru/articles/272733/)
-- [Streaming and replication reference](https://staging1--netdata-docusaurus.netlify.app/docs/streaming/streaming-configuration-reference)
-- [SquidAnalyzer](https://github.com/darold/squidanalyzer/tree/master)
+- [Intercept HTTPS с помощью Squid (Habr)](https://habr.com/ru/articles/267851/)\
+- [Балансировка и фильтрация трафика (Habr)](https://habr.com/ru/articles/272733/)\
+- [Streaming and replication reference](https://staging1--netdata-docusaurus.netlify.app/docs/streaming/streaming-configuration-reference)\
+- [SquidAnalyzer](https://github.com/darold/squidanalyzer/tree/master)\
 	
 
 
 ## Лицензия
-GNU GPL v3.0
-© 2023–2026 govorunov-av
+
+GNU GPL v3.0\
+© 2023–2026 govorunov-av\
