@@ -13,6 +13,11 @@ SquidFW — это комплексное решение для автомати
 
 Проект ориентирован на ALT Linux p11 (p10 — поддерживается в legacy-режиме).
 
+## Идеальная тополгогия
+
+<img width="904" height="1022" alt="image" src="https://github.com/user-attachments/assets/e1af8d9b-90ed-4d6f-adbf-38c527992916" />
+
+
 ## Основные возможности
 
 - Полноценный HTTPS-intercept. Установка корневых сертификатов не требуется!
