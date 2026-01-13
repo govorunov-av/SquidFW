@@ -39,6 +39,28 @@ CONSUL_INSTALL=0
 CONSUL_MASTER=0
 fi
 
+if [ $NODE_TYPE == 6 ]; then
+KEEPALIVED=0
+KEEPALIVED_MASTER=0
+SQUID_LB=0
+CONSUL_INSTALL=0
+CONSUL_MASTER=0
+fi
+network_service () {
+touch /scripts/custom-network.sh
+cat << EOF > /etc/systemd/system/custom-network.service
+[Unit]
+After=network.target
+
+[Service]
+ExecStart=bash /scripts/custom-network.sh
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+}
 squid_lb () {
 CACHE_MEM=$(echo $(free -h  | grep Mem | awk '{print$2}' | awk -F "M" '{print$1}' | awk -F "G" '{print$1}')*1024*0.78/1 | bc )
 CACHE_DISK=$(echo $(df -h | grep "/$" | awk '{print$4}' | awk -F "G" '{print$1}')*1024/2 | bc)
@@ -52,8 +74,8 @@ ssl_bump peek step1
 ssl_bump splice all
 sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/spool/squid/ssl_db -M 4MB
 
-access_log /var/log/squid/access.log
-cache_log /var/log/squid/cache.log
+#access_log /var/log/squid/access.log
+#cache_log /var/log/squid/cache.log
 
 acl localnet src $HOME_NET
 acl localnet src $INTERNAL_NET
@@ -62,16 +84,16 @@ http_access deny all
 
 never_direct allow all
 
-cache_mem $CACHE_MEM MB
-maximum_object_size_in_memory 1 MB
-maximum_object_size 10 MB
-cache_dir ufs /opt/squid $CACHE_DISK 16 256
+#cache_mem $CACHE_MEM MB
+#maximum_object_size_in_memory 1 MB
+#maximum_object_size 10 MB
+#cache_dir ufs /opt/squid $CACHE_DISK 16 256
 EOF
 
 cat << EOF > /scripts/peer_install.sh
 squid_peers () {
-MEMBERS=\$(curl -s "http://127.0.0.1:8500/v1/catalog/service/redsocks?passing" | jq | grep wan_ipv4 | awk -F ': ' '{print\$2}' | awk -F '"' '{print\$2}')
-SERVERS_COUNT=\$(echo "\$MEMBERS" | wc -l)
+SERVERS_COUNT=\$(consul members | grep client | awk '{print\$2}' | awk -F ":" '{print\$1}' | wc -l)
+MEMBERS=\$(consul members | grep client | grep alive | awk '{print\$2}' | awk -F ":" '{print\$1}')
 if [ \$SERVERS_COUNT == 0 ]; then
 echo EREROR, consul members = 0
 exit 1
@@ -86,7 +108,7 @@ done
 for ((i=1;i<=\$SERVERS_COUNT;i++)); do
 SRV_IP="SRV_IP_\$i"
 SRV_WEIGHT="SRV_WEIGHT_\$i"
-STATUS=\$(curl -s http://$NET_IP:8500/v1/health/checks/redsocks | jq ".[] | select(.ServiceTags | index(\\"\${!SRV_IP}\\"))" | grep critical | wc -l)
+STATUS=\$(curl -s http://192.168.16.1:8500/v1/health/checks/redsocks | jq ".[] | select(.ServiceTags | index(\\"\${!SRV_IP}\\"))" | grep critical | wc -l)
 if [ \$STATUS == 0 ]; then
 cat << EOF1 >> /scripts/squid_peers
 cache_peer \${!SRV_IP} parent 3228 0 no-digest round-robin weight=\${!SRV_WEIGHT} name=proxy_\$i
@@ -161,6 +183,7 @@ After=network.target
 [Service]
 ExecStart=bash /scripts/consul/consul.sh
 Restart=on-failure
+Environment=HOME=/scripts/consul/
 
 [Install]
 WantedBy=multi-user.target
@@ -201,7 +224,6 @@ cat << EOF > /scripts/consul/consul.json
 EOF
 
 if [[ $NODE_TYPE == 5 ]]; then
-sed -i 's|"server": false,|"server": true,|' /scripts/consul/consul.json
 cat << EOF > /scripts/consul_check.sh
 #!/bin/bash
 STATUS=\$(echo "PING" | nc -U /var/run/clamav/clamd.sock 2>/dev/null)
@@ -222,7 +244,9 @@ else
         exit 0
 fi
 EOF
+chmod +x /scripts/consul_check.sh
 
+if [[ $SPEEDTEST_INSTALL == 1 ]]; then
 apt-get install speedtest-cli -y
 cat << EOF > /scripts/speedtest.sh
 #!/bin/bash
@@ -279,11 +303,19 @@ EOF
 chmod +x /scripts/{speedtest.sh,consul_check.sh}
 chmod +x /scripts/consul/consul.sh
 
+else
+  if [[ -n $PROXY_WEIGHT ]]; then
+    consul kv put squid/clients/$NET_IP/weight $PROXY_WEIGHT 
+    else
+    echo "ERROR, PRIORITY NOT DEFINED"
+  fi
+fi
+
 cat << EOF > /scripts/sites_importer.sh
 files_changer () {
 FILE_NAME="
 ru_sites
-proxy_sites"
+vpn_sites"
 FILE_PATH="squid/configs/"
 FILES_COUNT=\$(echo \$FILE_NAME | wc -w)
 for ((i=1;i<=\$FILES_COUNT;i++)); do
@@ -410,6 +442,7 @@ base {
         user = redsocks;
         group = redsocks;
         redirector = iptables;
+	redsocks_conn_max = 1024;
 }
 
 redsocks {
@@ -433,11 +466,11 @@ TARGET_IP=$PROXY_IP
 
 #Функция проверки IP
 check_ip() {
-    CURRENT_IP=\$(curl -s ifconfig.me --max-time 2 --interface $REDSOCKS_IP)
+    CURRENT_IP=\$(curl -s https://ifconfig.me --max-time 2 --interface $REDSOCKS_IP)
 
     # Сравнение текущего IP с целевым
     if [[ \$CURRENT_IP != \$TARGET_IP ]]; then
-    CURRENT_IP2=\$(curl -s ifconfig.me --max-time 5 --interface $REDSOCKS_IP)
+    CURRENT_IP2=\$(curl -s https://ifconfig.me --max-time 5 --interface $REDSOCKS_IP)
     if [[ \$CURRENT_IP2 != \$TARGET_IP ]]; then
 
         ((COUNTER1++))
@@ -488,11 +521,15 @@ chmod 770 /etc/redsocks_proxy.conf
 squid_install () { 
 echo "Install and configure squid"
 mkdir /build/squid && cd /build/squid
-wget $SQUID_LINK # Пересобранный пакет squid
-wget $SQUID_HELPER_LINK  # Пересобранный пакет squid-helpers (Автоматически генерируется при сборке squid)
-apt-get install squid -y #Установка squid, только ради зависимостей
-apt-get remove squid -y #Удаление squid, но зависимости оставляем
-apt-get install squid-6.10-alt1.x86_64.rpm -y && apt-get install squid-helpers-6.10-alt1.x86_64.rpm -y
+apt-get install squid -y
+apt-get remove squid -y
+rm -rf ./squid*
+wget $SQUID_LINK
+apt-get install squid*.rpm -y
+rm -rf ./squid*
+wget $SQUID_HELPER_LINK
+apt-get install squid*.rpm -y
+rm -rf ./squid*
 
 echo "Create base config for squid"
 cat << EOF > /etc/squid/squid.conf
@@ -509,18 +546,18 @@ sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/spool/squid/ssl_db 
 acl localnet src $HOME_NET
 acl localnet src $INTERNAL_NET
 acl ru_sites dstdomain "/etc/squid/ru_sites"
-acl proxy_sites dstdomain "/etc/squid/proxy_sites"
+acl vpn_sites dstdomain "/etc/squid/vpn_sites"
 acl all_domain dstdomain .*
 
 tcp_outgoing_address $NET_IP ru_sites
-tcp_outgoing_address $REDSOCKS_IP proxy_sites
+tcp_outgoing_address $REDSOCKS_IP vpn_sites
 tcp_outgoing_address $NET_IP all_domain
 
 http_access allow localnet
 http_access deny all
 
-access_log /var/log/squid/access.log
-cache_log /var/log/squid/cache.log
+#access_log /var/log/squid/access.log
+#cache_log /var/log/squid/cache.log
 EOF
 if [[ ! -f /etc/squid/ssl_cert/squidCA.pem  ]]; then
 echo "Creating CA certificate"
@@ -538,14 +575,8 @@ squid -z
 echo "Configure ru domains file"
 echo "$RU_SITES" > /etc/squid/ru_sites
 
-echo "Configure proxy domains file"
-echo "$PROXY_SITES" > /etc/squid/proxy_sites
-
-IP_FORWARD=$(cat /etc/net/sysctl.conf | grep 'net.ipv4.ip_forward = 0' | wc -l )
-if [ "$IP_FORWARD" -eq 1 ]; then
-echo "enable ip_forvard"
-sed -i 's/^net\.ipv4\.ip_forward = 0$/net.ipv4.ip_forward = 1/' /etc/net/sysctl.conf
-fi
+echo "Configure vpn domains file"
+echo "$VPN_SITES" > /etc/squid/vpn_sites
 
 echo "Configure rt_tables"
 
@@ -625,17 +656,6 @@ cat << EOF >> /scripts/custom-network.sh
 systemctl restart squid
 EOF
 
-cat << EOF > /etc/systemd/system/custom-network.service
-[Unit]
-After=network.target
-
-[Service]
-ExecStart=bash /scripts/custom-network.sh
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-EOF
 }
 
 rsyslog () {
@@ -716,11 +736,6 @@ safebrowsing 0
 multipart 0
 scan_mode ScanAllExcept
 enable_libarchive 0
-abortcontent ^video\/.*
-abortcontent ^application\/x-mpegURL$
-abortcontent ^application\/octet-stream$
-abortcontent ^audio\/.*
-abortcontent ^image\/.*
 EOF4
 cat << EOF5 > /etc/squid/squid.conf
 http_port 3228
@@ -735,7 +750,6 @@ acl step3 at_step SslBump3
 
 ssl_bump peek step1
 ssl_bump bump all
-http_upgrade_request_protocols OTHER allow all
 
 sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/spool/squid/ssl_db -M 4MB
 
@@ -747,8 +761,8 @@ tcp_outgoing_address $NET_IP all_domain
 http_access allow localnet
 http_access deny all
 
-access_log /var/log/squid/access.log
-cache_log /var/log/squid/cache.log
+#access_log /var/log/squid/access.log
+#cache_log /var/log/squid/cache.log
 
 icap_enable on
 icap_send_client_ip on
@@ -762,7 +776,6 @@ icap_service service_avi_req reqmod_precache icap://127.0.0.1:1344/squid_clamav 
 adaptation_access service_avi_req allow all
 icap_service service_avi_resp respmod_precache icap://127.0.0.1:1344/squid_clamav bypass=on
 adaptation_access service_avi_resp allow all
-icap_persistent_connections on
 EOF5
 cat << EOF6 > /etc/c-icap.magic
 0:MZ:MSEXE:DOS/W32 executable/library/driver:EXECUTABLE
@@ -838,7 +851,7 @@ cat << EOF7 > /etc/systemd/system/freshclamav.service
 
 [Service]
 ExecStart=bash /scripts/freshclam.sh
-ExecReload=/bin/kill -USR2 $MAINPID
+ExecReload=/bin/kill -USR2 \$MAINPID
 StandardOutput=syslog
 
 [Install]
@@ -862,77 +875,102 @@ iptables -t nat -A PREROUTING -p tcp --dport 8443 -j DNAT --to-destination $NET_
 iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination $NET_IP:3128
 iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination $NET_IP:3128
 EOF9
-
-if [[ -n $NEW_GATEWAY ]]; then
-echo "default via $NEW_GATEWAY" > /etc/net/ifaces/$NET_INTERFACE/ipv4route
-fi
 }
 
-squidanalyzer () {
+maybenot () {
 cd /build
-git clone https://github.com/darold/squidanalyzer.git
-cd squidanalyzer/
-apt-get install apache2 perl-Module-Build -y
-perl Makefile.PL
-make
-make install
-cd -
-sed -i 's|LogFile\t*/var/log/squid3/access.log|LogFile\t/var/log/squid/access.log|' /etc/squidanalyzer/squidanalyzer.conf
-sed -i "s/#TimeZone\t*+00/TimeZone\t+03/" /etc/squidanalyzer/squidanalyzer.conf
-sed -i 's|TransfertUnit\t*BYTES|TransfertUnit\tGB|' /etc/squidanalyzer/squidanalyzer.conf
-echo '0 2 * * * /usr/local/bin/squid-analyzer -r  > /dev/null 2>&1' >> /etc/crontab
-apt-get install apache2 -y
+git clone https://github.com/govorunov-av/maybenot-tunnel.git
+cd maybenot-tunnel/
 
-cat << EOF1 > /etc/httpd2/conf/sites-enabled/000-default.conf
-<VirtualHost *>
-	<Directory />
-		Include conf/include/Directory_root_default.conf
-	</Directory>
-	Alias /squidreport /var/www/squidanalyzer
-        <Directory /var/www/squidanalyzer>
-            Options FollowSymLinks MultiViews
-	    AllowOverride None
-	    Require all granted
-        </Directory>
-	ErrorLog /var/log/httpd2/error_log
-	LogLevel warn
-	<IfModule log_config_module>
-		CustomLog /var/log/httpd2/access_log common
-	</IfModule>
-	<IfModule alias_module>
-		ScriptAlias /cgi-bin/ "/var/www/cgi-bin/"
-	</IfModule>
-	<Directory "/var/www/cgi-bin">
-		Include conf/include/Directory_cgibin_default.conf
-	</Directory>
-</VirtualHost>
+sed -i "s/pub const MAX_FRAGMENT_SIZE: usize .*/pub const MAX_FRAGMENT_SIZE: usize = $MAX_FRAGMENT_SIZE;/g" /build/maybenot-tunnel/src/obfuscation.rs
+sed -i "s/pub const MIN_FRAGMENT_SIZE: usize .*/pub const MIN_FRAGMENT_SIZE: usize = $MIN_FRAGMENT_SIZE;/g" /build/maybenot-tunnel/src/obfuscation.rs
+sed -i "s/pub const MAX_PADDING_SIZE: usize .*/pub const MAX_PADDING_SIZE: usize = $MAX_PADDING_SIZE;/" /build/maybenot-tunnel/src/obfuscation.rs
+sed -i "s/pub const IDLE_THRESHOLD_MS: u64 .*/pub const IDLE_THRESHOLD_MS: u64 = $IDLE_THRESHOULD_MS;/g" /build/maybenot-tunnel/src/obfuscation.rs
+sed -i "s/pub const DUMMY_TRAFFIC_INTERVAL_MS: u64 .*/pub const DUMMY_TRAFFIC_INTERVAL_MS: u64 = $DUMMY_TRAFFIC_INTERVAL_MS;/g" /build/maybenot-tunnel/src/obfuscation.rs
+
+apt-get install rust -y
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source $HOME/.cargo/env
+cargo build --release
+cp target/release/maybenot-tunnel /usr/bin/
+cat << EOF1 > /etc/systemd/system/maybenot-tunnel.service
+[Unit]
+Description=service for maybenot-tunnel
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/maybenot-tunnel
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
 EOF1
+cat << EOF2 > /scripts/redsocks-maybenot.sh
+#!/bin/bash
+/usr/local/bin/redsocks -c /etc/redsocks_maybenot.conf
 
-cat << EOF2 > /etc/httpd2/conf/ports-enabled/http.conf
-Listen 81
+sleep 1
+while true; do
+	ss -lntp | grep -q 1080  || echo "ERROR. Port 1080 not listen"
+	ss -lntp | grep -q 1081  || echo "ERROR. Port 1081 not listen"
+    sleep 15
+done
 EOF2
-systemctl enable --now httpd2
-/usr/local/bin/squid-analyzer
+cat << EOF3 > /etc/redsocks_maybenot.conf
+base {
+        log_debug = off;
+        log_info = on;
+        log = "syslog:daemon";
+        daemon = on;
+        user = redsocks;
+        group = redsocks;
+        redirector = iptables;
+	redsocks_conn_max = 1024;
 }
 
-netdata () {
-apt-get update && apt-get install git gcc make autoconf autoconf-archive autogen automake pkg-config curl python3 python3-module-yaml python3-module-mysql python3-module-psycopg2 nodejs lm_sensors3 netcat -y
-curl https://get.netdata.cloud/kickstart.sh > /tmp/netdata-kickstart.sh && sh /tmp/netdata-kickstart.sh --stable-channel --disable-telemetry
-echo "Netdata make auto chroot = /opt/netdata"
-cat << EOF1 > /opt/netdata/etc/netdata/stream.conf
-[stream]
-    enabled = yes
-    destination = $NETDATA_DEST
-    api key = $NETDATA_API
+redsocks {
+        local_ip = 0.0.0.0;
+        local_port = 1081;
+        ip = 127.0.0.1;
+        port = 1080;
+        type = socks5;
+}
+EOF3
+cat << EOF4 > /etc/systemd/system/redsocks-maybenot.service
+[Unit]
+Description=Redsocks - Transparent Socks Redirector
+After=network.target
+
+[Service]
+ExecStart=bash /scripts/redsocks-maybenot.sh
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF4
+
+useradd redsocks
+usermod -aG redsocks redsocks
+chown redsocks:redsocks /etc/redsocks_proxy.conf
+chmod 770 /etc/redsocks_proxy.conf
+cat << EOF1 > /scripts/custom-network.sh
+#iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 1081
+#iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-ports 1081
+iptables -t nat -A PREROUTING -p tcp --dport "$PORT_RANGE" -j REDIRECT --to-ports 1081
 EOF1
-systemctl restart netdata
-echo "Netdata installation complete"
+systemctl enable --now redsocks-maybenot.service
+systemctl enable --now  maybenot-tunnel.service
+
 }
 
 install () {
+network_service 
 apt-get update && apt-get install git curl wget make gcc libevent-devel -y
 mkdir /build
 mkdir /scripts
+if [ $NODE_TYPE == 6 ]; then
+maybenot
+else
 squid_install
 if [[ $SQUID_LB == 1 ]]; then
 squid_lb
@@ -1084,27 +1122,30 @@ if [[ -n $LB_SERVER ]]; then
 if [[ -n $CONSUL_ENCRYPT ]]; then
 consul_install 
 consul_worker
-systemctl enable --now consul
 else
 	echo 'Переменная LB_SERVER определена, но CONSUL_ENCRYPT - нет, consul не будет установлен!'
 fi
 fi
 fi
-
-if [[ $SQUIDANALYZER == 1 ]]; then
-squidanalyzer
-fi
-
-if [[ $NETDATA_INSTALL == 1 ]]; then
-netdata
 fi
 
 cd ~
 rm -rf /build
+if [[ -n $NEW_GATEWAY ]]; then
+echo "default via $NEW_GATEWAY" > /etc/net/ifaces/$NET_INTERFACE/ipv4route
+fi
+
+IP_FORWARD=$(cat /etc/net/sysctl.conf | grep 'net.ipv4.ip_forward = 0' | wc -l )
+if [ "$IP_FORWARD" -eq 1 ]; then
+echo "enable ip_forvard"
+sed -i 's/^net\.ipv4\.ip_forward = 0$/net.ipv4.ip_forward = 1/' /etc/net/sysctl.conf
+fi
+
 systemctl daemon-reload
 systemctl enable --now custom-network
 systemctl restart custom-network
 }
+
 post_install () {
 echo '###################################################################'
 echo 'Установка завершена!'
@@ -1115,15 +1156,7 @@ if [ $NODE_TYPE == 5 ]; then
 echo 'ON CLIENT INSTALL TRUSTED CERT:'
 cat /etc/squid/ssl_cert/squid.crt
 fi
-if [[ $SQUIDANALYZER == 1 ]]; then
-echo "Squidanalyzer available on http://${NET_IP}:81/squidreport"
-fi
-
 echo 'FOR WORK NEED REBOOT!'
 }
-if [[ -n $1 ]]; then
-    $1
-else
-    install
-    post_install
-fi
+install
+post_install
