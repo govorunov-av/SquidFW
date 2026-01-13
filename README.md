@@ -48,6 +48,8 @@
 - Мониторинг с помощью netdata (В режиме stream)
 	
 - Интеграция с сетевым антивирусом ClamAV (через ICAP)
+
+- Установка maybenot
     
 
 ---
@@ -61,16 +63,15 @@
 |3|Backup-нода VRRP|Squid + Redsocks + Keepalived|
 |4|Балансировщик нагрузки|Squid с cache_peer|
 |5|Сетевой антивирус|ClamAV + ICAP|
+|8|Установка maybenot|
 
 ---
 
 ## 📅 Системные требования
 
-- **ALT Linux P10** (можно использовать ALT JEOS P10)
+- **ALT Linux P11** (P10 тоже можно, но уже legacy)
     
-- Скрипт требует пересборки Squid с патчами
-    
-- Используются мои `.rpm` пакеты по умолчанию
+- Скрипт требует пересборки Squid с патчами, или можно использовать мои `.rpm` пакеты по умолчанию
     
 
 Если нужно использовать собственные пакеты, то можно пересобрать стандартные пакеты squid и squid_helpers в соответствии с данной [статьей](https://habr.com/ru/articles/267851/). После укажите ссылки в переменных:
@@ -90,11 +91,14 @@ SQUID_HELPER_LINK="<ссылка на helpers rpm>"
 
 ```
 HOME_NET='192.168.0.0/16'
-NODE_TYPE= #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer, 5 for ClamAv network antivirus
+INTERNAL_NET='10.0.0.0/24' #ONLY /24 PREFIX
+
+# Тип установки
+NODE_TYPE= #1 for single install, 2 for vrrp Master, 3 for vrrp Backup, 4 for LoadBalancer, 5 for ClamAv network antivirus, 6 for install maybenot
 
 # Пакеты
-SQUID_LINK='https://.../squid.rpm'
-SQUID_HELPER_LINK='https://.../squid-helpers.rpm'
+SQUID_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/packages/squid-7.3-alt1.x86_64.rpm'
+SQUID_HELPER_LINK='https://github.com/govorunov-av/SquidFW/raw/refs/heads/main/packages/squid-helpers-7.3-alt1.x86_64.rpm'
 
 # Мониторинг
 RSYSLOG_INSTALL=0 #Set 1 or 0
@@ -126,7 +130,7 @@ PROXY_SITES="
 ```
 
 ### 🔹 NODE_TYPE 2:
-В данном режиме устанавливается main нода кластера. Поддерживается любое* кол-во нод, но никакой балансировки не будет. Нода 2 типа будет главной, а присоединенная нода 3 типа - будет бэкапом. НА клиенте в качестве шлюза по умолчанию необходимо установить vrrp ip.
+В данном режиме устанавливается main нода кластера. Поддерживается любое* кол-во нод, но никакой балансировки не будет. Нода 2 типа будет главной, а присоединенная нода 3 типа будет бэкапом. На клиенте в качестве шлюза по умолчанию необходимо установить значение переменной $KEEPALIVED_VIP.
 
 Переменные, для типа установки 2:
 
@@ -144,7 +148,8 @@ PROXY_SITES="
 .com
 "
 
-KEEPALIVED_VIP= #HA ip
+KEEPALIVED_VIP= #vip - gateway for clients
+KEEPALIVED_PASSWORD= #Password for link Backup nodes. Up to 8 symbols
 ```
 
 ### 🔹 NODE_TYPE 3:
@@ -166,12 +171,18 @@ PROXY_SITES="
 .com
 "
 
-KEEPALIVED_VIP= #HA ip
-KEEPALIVED_PASSWORD=password #Password for link Backup nodes
+NEW_GATEWAY= #Change gateway to specified
 
-#SET LB_SERVER and CONSUL_ENCRYPT FOR 3 NODE TYPE, if need to connect to node 4 type
-LB_SERVER=
-CONSUL_ENCRYPT=''
+KEEPALIVED_VIP= #vip - gateway for clients
+KEEPALIVED_PASSWORD= #Password for link Backup nodes. Up to 8 symbols
+
+#SET PROXY_WEIGHT or SPEEDTEST_INSTALL. Not and!
+PROXY_WEIGHT=10 #Ex use proxy speed (Mbit/s)
+SPEEDTEST_INSTALL=0 #1 or 0. You need access to speedtest site
+
+#SET LB_SERVER and CONSUL_ENCRYPT FOR 3 NODE TYPE, if need to connect to node 4/2 type
+LB_SERVER= #Ip of node with type 3
+CONSUL_ENCRYPT='' #Consul encrypt from node 4/2 type, printed after install
 ```
 
 ### 🔹 NODE_TYPE 4:
@@ -195,6 +206,17 @@ CONSUL_ENCRYPT=''
 ```
 
 На клиенте устанавливается сертификат CA (выводится после установки) и ip адрес данной ноды.
+
+### 🔹 NODE_TYPE 6:
+
+```
+MAX_FRAGMENT_SIZE=1400
+MIX_FRAGMENT_SIZE=200
+MAX_PADDING_SIZE=256
+IDLE_THRESHOULD_MS=400
+DUMMY_TRAFFIC_INTERVAL_MS=2000
+
+```
 
 ---
 
@@ -292,10 +314,9 @@ echo 'gitlab-runner ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
 usermod -aG wheel gitlab-runner 
 gitlab-runner install --user=gitlab-runner --working-directory=/home/gitlab-runner
 gitlab-runner start
-gitlab-runner register
 ```
 Далее как и обычно, при добавлении раннера добавляем тег, регистрируем раннера
-`gitlab-runner register`
+`gitlab-runner register #Register command from gitlab`
 
 Клонируем репозиторий, или просто копируем файлы руками.
 Для удобства - можно создать 1 репозиторий и несколько веток, по ветке для каждой ноды. 
@@ -353,4 +374,4 @@ bash install.sh netdata
 
 ---
 
-© 2023-2025 govorunov-av. Licensed under GNU GPL v3.0.
+© 2023-2026 govorunov-av. Licensed under GNU GPL v3.0.
