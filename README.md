@@ -181,6 +181,22 @@ KEEPALIVED_PASSWORD=password #Password for link Backup nodes
 ```
 
 В конце установки будет выведен consul encrypt ключ, необходимый для подключений остальных нод в consul. 
+Балансировка не является лучшим решением для балансировки шлюзов. Поэтому я написал небольшой скриптик, что более эффективно выполняет балансировку. Данный скрипт располагается по адресу https://github.com/govorunov-av/BashLb
+Что бы воспользоваться им вместо squid с cache_peer нужно:
+  - Первоначально сконфигурировать ВМ с помощью этого скрипта для NODE_TYPE=4
+  - Выполнить следующие команды, для отключения squid и некоторых iptables правил
+    
+    ```
+    systemctl disable --now custom-network.service
+    iptables -t nat -F 
+    git clone https://github.com/govorunov-av/BashLb.git
+    cd BashLb/
+    vim env.conf
+    #Отредактировать файл переменных в соответствии с README
+    bash install.sh "$(pwd)/script.sh"
+    systemctl status BashLb
+    ```
+
 
 ### NODE_TYPE 5:
 
